@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+supabase
+PyJWT
+python-dotenv
+pydantic
+cloudinary
+python-multipart
