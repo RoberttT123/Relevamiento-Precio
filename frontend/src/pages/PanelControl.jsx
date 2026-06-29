@@ -12,7 +12,7 @@
  *   empleado  { id, nombre, rol, codigo_empleado }
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import GraficoMargen from "../components/GraficoMargen";
 
 // ─── Tokens PROESA ────────────────────────────────────────────────────────────
@@ -35,7 +35,6 @@ const C = {
 };
 
 // ─── Base de API, sin barra final ────────────────────────────────────────────
-// Evita el bug de "//api/..." si VITE_API_URL quedó con "/" al final en el .env.
 const API = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -341,11 +340,47 @@ const S = {
     animation: "shimmer 1.4s infinite",
     display: "inline-block",
   }),
+
+  // ── Acordeón de categoría (detalle histórico) ─────────────────────────────
+  catWrap: {
+    borderBottom: `1px solid ${C.gray100}`,
+  },
+  catHeader: (expandido) => ({
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    padding: "12px 14px",
+    cursor: "pointer",
+    background: expandido ? C.gray50 : C.white,
+    WebkitTapHighlightColor: "transparent",
+    minHeight: "48px",
+  }),
+  catNombre: {
+    fontSize: "13.5px",
+    fontWeight: 700,
+    color: C.navy,
+    flex: 1,
+  },
+  catContador: {
+    fontSize: "11px",
+    fontWeight: 600,
+    color: C.gray400,
+    background: C.gray100,
+    padding: "2px 9px",
+    borderRadius: "20px",
+    whiteSpace: "nowrap",
+  },
+  catFlecha: (expandido) => ({
+    fontSize: "15px",
+    color: C.gray400,
+    transform: expandido ? "rotate(180deg)" : "rotate(0deg)",
+    transition: "transform 0.2s",
+    lineHeight: 1,
+    flexShrink: 0,
+  }),
 };
 
 // ─── CSS responsive: alterna entre vista de cards (mobile) y tabla (desktop) ─
-// Por defecto (mobile-first) se muestran las cards y la tabla queda oculta.
-// A partir de 860px se invierte: aparece la tabla y se ocultan las cards.
 const RESPONSIVE_CSS = `
   .panel-cards-list { display: block; }
   .panel-table-wrap { display: none; }
@@ -382,18 +417,42 @@ function ultimosPeriodos(n = 12) {
   return result;
 }
 
+// ─── Acordeón de categoría para el detalle histórico (vista mobile) ──────────
+function CategoriaAcordeonHistorial({ categoria, filas, defaultAbierto }) {
+  const [expandido, setExpandido] = useState(defaultAbierto);
+
+  return (
+    <div style={S.catWrap}>
+      <div
+        style={S.catHeader(expandido)}
+        onClick={() => setExpandido(e => !e)}
+      >
+        <span style={S.catNombre}>{categoria}</span>
+        <span style={S.catContador}>{filas.length}</span>
+        <span style={S.catFlecha(expandido)}>⌄</span>
+      </div>
+
+      {expandido && (
+        <div style={S.cardListWrap}>
+          {filas.map((row, i) => (
+            <ProductoCard key={i} row={row} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Card de producto para vista mobile ──────────────────────────────────────
 function ProductoCard({ row }) {
   return (
     <div style={S.prodCard}>
-      {/* Encabezado: fuente + nombre + marca */}
       <div style={S.prodCardTop}>
         <div style={S.prodCardInfo}>
           <div style={S.prodCardNombre}>{row.descripcion}</div>
           <div style={S.prodCardMeta}>
             {row.marca}
             {row.grameaje_ml != null ? ` · ${row.grameaje_ml} g/ml` : ""}
-            {" · "}{row.categoria}
           </div>
         </div>
         <span style={S.chip(
@@ -404,7 +463,6 @@ function ProductoCard({ row }) {
         </span>
       </div>
 
-      {/* Precios caja / unidad lado a lado */}
       <div style={S.prodCardPreciosGrid}>
         <div style={{ ...S.precioBlock, background: bgMargen(row.margen_caja_pct) }}>
           <div style={S.precioBlockLabel}>Por caja</div>
@@ -439,7 +497,6 @@ function ProductoCard({ row }) {
         </div>
       </div>
 
-      {/* Footer: rubro + última edición */}
       <div style={S.prodCardFooter}>
         <span>{row.rubro}</span>
         <span>
@@ -457,17 +514,15 @@ export default function PanelControl({ empleado }) {
   const token    = localStorage.getItem("token") ?? "";
   const periodos = ultimosPeriodos();
 
-  // ── Filtros del panel ─────────────────────────────────────────────────────
   const [periodoSel, setPeriodoSel] = useState(periodoActual());
   const [rubroSel,   setRubroSel]   = useState("");
   const [fuenteSel,  setFuenteSel]  = useState("");
+  const [categoriaSel, setCategoriaSel] = useState("");
 
-  // ── Filtros comparativa ───────────────────────────────────────────────────
   const [periodoA,   setPeriodoA]   = useState(periodoAnterior());
   const [periodoB,   setPeriodoB]   = useState(periodoActual());
   const [hoverComp,  setHoverComp]  = useState(false);
 
-  // ── Datos ─────────────────────────────────────────────────────────────────
   const [resumen,      setResumen]      = useState(null);
   const [panelData,    setPanelData]    = useState([]);
   const [comparativa,  setComparativa]  = useState([]);
@@ -475,7 +530,6 @@ export default function PanelControl({ empleado }) {
   const [loadPanel,    setLoadPanel]    = useState(true);
   const [loadComp,     setLoadComp]     = useState(false);
 
-  // ── Cargar resumen del período ────────────────────────────────────────────
   const cargarResumen = useCallback(async () => {
     setLoadRes(true);
     try {
@@ -492,7 +546,6 @@ export default function PanelControl({ empleado }) {
     }
   }, [periodoSel, token]);
 
-  // ── Cargar datos del panel ────────────────────────────────────────────────
   const cargarPanel = useCallback(async () => {
     setLoadPanel(true);
     try {
@@ -513,7 +566,6 @@ export default function PanelControl({ empleado }) {
     }
   }, [periodoSel, rubroSel, fuenteSel, token]);
 
-  // ── Cargar comparativa ────────────────────────────────────────────────────
   async function cargarComparativa() {
     if (periodoA === periodoB) return;
     setLoadComp(true);
@@ -538,11 +590,9 @@ export default function PanelControl({ empleado }) {
     }
   }
 
-  // ── Efectos ───────────────────────────────────────────────────────────────
   useEffect(() => { cargarResumen(); }, [cargarResumen]);
   useEffect(() => { cargarPanel();   }, [cargarPanel]);
 
-  // ── Render de cards de resumen ────────────────────────────────────────────
   function CardResumen({ icon, label, valor, sub, colorValor }) {
     return (
       <div style={S.card}>
@@ -558,12 +608,36 @@ export default function PanelControl({ empleado }) {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Agrupar el detalle histórico por categoría ───────────────────────────
+  const categoriasDisponibles = useMemo(() => {
+    const set = new Set(panelData.map(r => r.categoria || "Sin categoría"));
+    return Array.from(set).sort();
+  }, [panelData]);
+
+  const panelDataFiltrado = useMemo(() => {
+    if (!categoriaSel) return panelData;
+    return panelData.filter(r => (r.categoria || "Sin categoría") === categoriaSel);
+  }, [panelData, categoriaSel]);
+
+  const porCategoria = useMemo(() => {
+    const acc = {};
+    panelDataFiltrado.forEach(row => {
+      const cat = row.categoria || "Sin categoría";
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(row);
+    });
+    return acc;
+  }, [panelDataFiltrado]);
+
+  const categoriasOrdenadas = useMemo(
+    () => Object.keys(porCategoria).sort(),
+    [porCategoria]
+  );
+
   return (
     <div style={S.page}>
       <style>{`@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} } ${RESPONSIVE_CSS}`}</style>
 
-      {/* ── Barra de filtros ─────────────────────────────────────────── */}
       <div className="panel-filter-bar" style={S.filterBar}>
         <span style={S.filterLabel}>Período</span>
         <select
@@ -591,6 +665,18 @@ export default function PanelControl({ empleado }) {
 
         <select
           className="panel-select"
+          value={categoriaSel}
+          onChange={e => setCategoriaSel(e.target.value)}
+          style={S.select(!!categoriaSel)}
+        >
+          <option value="">Todas las categorías</option>
+          {categoriasDisponibles.map(cat => (
+            <option key={cat} value={cat}>{cat}</option>
+          ))}
+        </select>
+
+        <select
+          className="panel-select"
           value={fuenteSel}
           onChange={e => setFuenteSel(e.target.value)}
           style={S.select(!!fuenteSel)}
@@ -602,7 +688,6 @@ export default function PanelControl({ empleado }) {
         </select>
       </div>
 
-      {/* ── Cards de resumen ─────────────────────────────────────────── */}
       <div style={S.cardsGrid}>
         <CardResumen
           icon="📦"
@@ -645,7 +730,6 @@ export default function PanelControl({ empleado }) {
         />
       </div>
 
-      {/* ── Comparativa entre períodos + gráfico ─────────────────────── */}
       <div style={S.seccion}>
         <div style={S.seccionHeader}>
           <div style={S.seccionTitulo}>
@@ -683,7 +767,6 @@ export default function PanelControl({ empleado }) {
           </div>
         </div>
 
-        {/* Gráfico */}
         {loadComp ? (
           <div style={S.estadoCenter}>
             <span>⏳ Cargando comparativa…</span>
@@ -704,14 +787,13 @@ export default function PanelControl({ empleado }) {
         )}
       </div>
 
-      {/* ── Detalle histórico: cards en mobile, tabla en desktop ──────── */}
       <div style={{ ...S.seccion, margin: "1rem 1rem 1.5rem" }}>
         <div style={S.seccionHeader}>
           <div style={S.seccionTitulo}>
             📋 Detalle — {periodoLabel(periodoSel)}
           </div>
           <span style={{ fontSize: "12px", color: C.gray400 }}>
-            {loadPanel ? "…" : `${panelData.length} registros`}
+            {loadPanel ? "…" : `${panelDataFiltrado.length} registros`}
           </span>
         </div>
 
@@ -729,7 +811,7 @@ export default function PanelControl({ empleado }) {
               </div>
             ))}
           </div>
-        ) : panelData.length === 0 ? (
+        ) : panelDataFiltrado.length === 0 ? (
           <div style={S.estadoCenter}>
             <span style={{ fontSize: "26px" }}>🗂️</span>
             <span style={{ fontSize: "13px" }}>
@@ -738,14 +820,19 @@ export default function PanelControl({ empleado }) {
           </div>
         ) : (
           <>
-            {/* ── Vista cards (mobile) ──────────────────────────────── */}
-            <div className="panel-cards-list" style={S.cardListWrap}>
-              {panelData.map((row, i) => (
-                <ProductoCard key={i} row={row} />
+            {/* ── Vista mobile: acordeones por categoría ─────────────── */}
+            <div className="panel-cards-list">
+              {categoriasOrdenadas.map((cat, idx) => (
+                <CategoriaAcordeonHistorial
+                  key={cat}
+                  categoria={cat}
+                  filas={porCategoria[cat]}
+                  defaultAbierto={idx === 0 && categoriasOrdenadas.length <= 4}
+                />
               ))}
             </div>
 
-            {/* ── Vista tabla (desktop, ≥860px) ─────────────────────── */}
+            {/* ── Vista tabla (desktop, ≥860px), agrupada con separadores ── */}
             <div className="panel-table-wrap" style={S.tableWrap}>
               <table style={S.table}>
                 <thead>
@@ -761,56 +848,75 @@ export default function PanelControl({ empleado }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {panelData.map((row, i) => (
-                    <tr key={i}>
-                      <td style={S.td(i)}>{row.rubro}</td>
-                      <td style={S.td(i)}>{row.categoria}</td>
-                      <td style={S.td(i)}>
-                        <span style={S.chip(
-                          row.fuente === "PROESA" ? C.white : C.red,
-                          row.fuente === "PROESA" ? C.navy : C.redLight,
-                        )}>
-                          {row.fuente === "PROESA" ? "✦ PROESA" : "⚡ Comp."}
-                        </span>
-                      </td>
-                      <td style={S.td(i)}>{row.marca}</td>
-                      <td style={{ ...S.td(i), maxWidth: "200px",
-                        overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {row.descripcion}
-                      </td>
-                      <td style={S.td(i)}>
-                        {row.grameaje_ml != null ? `${row.grameaje_ml}` : "—"}
-                      </td>
-                      <td style={S.td(i)}>
-                        {row.precio_compra_caja != null
-                          ? `Bs ${row.precio_compra_caja.toFixed(2)}` : "—"}
-                      </td>
-                      <td style={S.td(i)}>
-                        {row.precio_venta_caja != null
-                          ? `Bs ${row.precio_venta_caja.toFixed(2)}` : "—"}
-                      </td>
-                      <td style={{ ...S.td(i), ...S.margenCell(row.margen_caja_pct) }}>
-                        {row.margen_caja_pct != null
-                          ? `${row.margen_caja_pct.toFixed(1)}%` : "—"}
-                      </td>
-                      <td style={S.td(i)}>
-                        {row.precio_compra_unidad != null
-                          ? `Bs ${row.precio_compra_unidad.toFixed(2)}` : "—"}
-                      </td>
-                      <td style={S.td(i)}>
-                        {row.precio_venta_unidad != null
-                          ? `Bs ${row.precio_venta_unidad.toFixed(2)}` : "—"}
-                      </td>
-                      <td style={{ ...S.td(i), ...S.margenCell(row.margen_unidad_pct) }}>
-                        {row.margen_unidad_pct != null
-                          ? `${row.margen_unidad_pct.toFixed(1)}%` : "—"}
-                      </td>
-                      <td style={{ ...S.td(i), color: C.gray400, fontSize: "11px" }}>
-                        {row.ultima_edicion
-                          ? new Date(row.ultima_edicion).toLocaleDateString("es-BO")
-                          : "—"}
-                      </td>
-                    </tr>
+                  {categoriasOrdenadas.map(cat => (
+                    <Fragment key={cat}>
+                      <tr>
+                        <td colSpan={13} style={{
+                          padding: "7px 14px",
+                          background: C.gray100,
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          color: C.navy,
+                          letterSpacing: "0.3px",
+                          textTransform: "uppercase",
+                        }}>
+                          {cat} <span style={{ color: C.gray400, fontWeight: 500, textTransform: "none" }}>
+                            ({porCategoria[cat].length})
+                          </span>
+                        </td>
+                      </tr>
+                      {porCategoria[cat].map((row, i) => (
+                        <tr key={i}>
+                          <td style={S.td(i)}>{row.rubro}</td>
+                          <td style={S.td(i)}>{row.categoria}</td>
+                          <td style={S.td(i)}>
+                            <span style={S.chip(
+                              row.fuente === "PROESA" ? C.white : C.red,
+                              row.fuente === "PROESA" ? C.navy : C.redLight,
+                            )}>
+                              {row.fuente === "PROESA" ? "✦ PROESA" : "⚡ Comp."}
+                            </span>
+                          </td>
+                          <td style={S.td(i)}>{row.marca}</td>
+                          <td style={{ ...S.td(i), maxWidth: "200px",
+                            overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {row.descripcion}
+                          </td>
+                          <td style={S.td(i)}>
+                            {row.grameaje_ml != null ? `${row.grameaje_ml}` : "—"}
+                          </td>
+                          <td style={S.td(i)}>
+                            {row.precio_compra_caja != null
+                              ? `Bs ${row.precio_compra_caja.toFixed(2)}` : "—"}
+                          </td>
+                          <td style={S.td(i)}>
+                            {row.precio_venta_caja != null
+                              ? `Bs ${row.precio_venta_caja.toFixed(2)}` : "—"}
+                          </td>
+                          <td style={{ ...S.td(i), ...S.margenCell(row.margen_caja_pct) }}>
+                            {row.margen_caja_pct != null
+                              ? `${row.margen_caja_pct.toFixed(1)}%` : "—"}
+                          </td>
+                          <td style={S.td(i)}>
+                            {row.precio_compra_unidad != null
+                              ? `Bs ${row.precio_compra_unidad.toFixed(2)}` : "—"}
+                          </td>
+                          <td style={S.td(i)}>
+                            {row.precio_venta_unidad != null
+                              ? `Bs ${row.precio_venta_unidad.toFixed(2)}` : "—"}
+                          </td>
+                          <td style={{ ...S.td(i), ...S.margenCell(row.margen_unidad_pct) }}>
+                            {row.margen_unidad_pct != null
+                              ? `${row.margen_unidad_pct.toFixed(1)}%` : "—"}
+                          </td>
+                          <td style={{ ...S.td(i), color: C.gray400, fontSize: "11px" }}>
+                            {row.ultima_edicion
+                              ? new Date(row.ultima_edicion).toLocaleDateString("es-BO")
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
