@@ -37,7 +37,9 @@ const C = {
   gray600:    "#666666",
 };
 
-const API   = import.meta.env.VITE_API_URL ?? "";
+// ─── Base de API, sin barra final ────────────────────────────────────────────
+// Evita el bug de "//api/..." si VITE_API_URL quedó con "/" al final en el .env.
+const API   = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 const TOUCH = 44;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

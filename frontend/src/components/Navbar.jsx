@@ -2,7 +2,9 @@
 /**
  * Navbar.jsx — Barra de navegación principal
  * -------------------------------------------
- * Franja superior:  logo (izquierda) | badge período + empleado + logout (derecha)
+ * Franja superior:
+ *   Mobile (<640px):  logo (izq) | avatar (der, abre menú desplegable)
+ *   Desktop (≥640px): logo (izq) | badge período + avatar + nombre/rol + logout (der)
  * Franja inferior:  tabs Relevamiento · Panel de control
  *
  * Props:
@@ -12,7 +14,7 @@
  *   onLogout      () => void
  */
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 // ─── Tokens PROESA ────────────────────────────────────────────────────────────
 const C = {
@@ -52,6 +54,22 @@ const TABS = [
   { id: "panel",        label: "Panel de control", icon: "📊" },
 ];
 
+// ─── Iconos SVG simples (consistentes, sin depender del set de emojis) ───────
+const Icon = {
+  Calendario: (p) => (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" {...p}>
+      <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8"/>
+      <path d="M3 9.5h18M7.5 3v4M16.5 3v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+    </svg>
+  ),
+  Salida: (p) => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" {...p}>
+      <path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M16 16l5-4-5-4M21 12H9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
+};
+
 // ─── Estilos ──────────────────────────────────────────────────────────────────
 const S = {
   wrapper: {
@@ -63,16 +81,22 @@ const S = {
     zIndex: 100,
     boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    // Evita que esta barra, o cualquier hijo suyo, empuje el ancho de la
+    // página y dispare scroll horizontal en toda la app.
+    maxWidth: "100vw",
+    boxSizing: "border-box",
+    overflow: "hidden",
   },
 
   // ── Franja superior ──────────────────────────────────────────────────────
   topBar: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",   // logo izq | derecha todo junto
-    padding: "0 1.5rem",
+    justifyContent: "space-between",
+    padding: "0 1rem",
     height: "52px",
     borderBottom: `1px solid ${C.gray100}`,
+    gap: "10px",
   },
 
   // Logo (izquierda)
@@ -80,6 +104,8 @@ const S = {
     display: "flex",
     alignItems: "center",
     gap: "9px",
+    minWidth: 0,
+    overflow: "hidden",
   },
   logoMark: {
     width: "32px",
@@ -99,21 +125,25 @@ const S = {
     fontWeight: 600,
     color: C.navy,
     letterSpacing: "0.2px",
+    whiteSpace: "nowrap",
   },
   logoSub: {
     fontSize: "11px",
     color: C.gray400,
     fontWeight: 400,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
 
-  // Derecha: badge + divider + avatar + nombre/rol + divider + logout
-  rightGroup: {
+  // Derecha: en mobile, solo el avatar (ver navbar-right-full / navbar-avatar-only)
+  rightGroupFull: {
     display: "flex",
     alignItems: "center",
     gap: "12px",
+    flexShrink: 0,
   },
 
-  // Badge período (derecha)
   periodBadge: {
     display: "inline-flex",
     alignItems: "center",
@@ -134,6 +164,15 @@ const S = {
     flexShrink: 0,
   },
 
+  avatarBtn: {
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    flexShrink: 0,
+    WebkitTapHighlightColor: "transparent",
+    position: "relative",
+  },
   avatarCircle: {
     width: "32px",
     height: "32px",
@@ -183,21 +222,89 @@ const S = {
     whiteSpace: "nowrap",
   }),
 
+  // ── Menú desplegable del avatar (mobile) ──────────────────────────────────
+  dropdownWrap: {
+    position: "absolute",
+    top: "calc(100% + 8px)",
+    right: 0,
+    background: C.white,
+    borderRadius: "12px",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+    border: `1px solid ${C.border}`,
+    minWidth: "200px",
+    padding: "12px",
+    zIndex: 200,
+    textAlign: "left",
+  },
+  dropdownHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    paddingBottom: "10px",
+    borderBottom: `1px solid ${C.gray100}`,
+    marginBottom: "8px",
+  },
+  dropdownNombre: {
+    fontSize: "13.5px",
+    fontWeight: 600,
+    color: C.navy,
+    lineHeight: 1.2,
+  },
+  dropdownRol: {
+    fontSize: "11.5px",
+    color: C.gray400,
+    textTransform: "capitalize",
+    lineHeight: 1.2,
+  },
+  dropdownPeriodo: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "11.5px",
+    color: C.red,
+    fontWeight: 600,
+    background: C.redLight,
+    padding: "5px 10px",
+    borderRadius: "8px",
+    marginBottom: "8px",
+  },
+  dropdownLogoutBtn: (hover) => ({
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "6px",
+    background: hover ? C.redLight : C.gray50,
+    border: "none",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 600,
+    color: hover ? C.red : C.navy,
+    padding: "9px 10px",
+    borderRadius: "8px",
+    transition: "color 0.15s, background 0.15s",
+    WebkitTapHighlightColor: "transparent",
+  }),
+
   // ── Franja inferior: tabs ────────────────────────────────────────────────
+  // overflowX está puesto a propósito: si hubiera más tabs de las que entran,
+  // que se deslice solo ESTA franja angosta, nunca la página completa.
   tabsBar: {
     display: "flex",
     alignItems: "flex-end",
-    padding: "0 1.5rem",
+    padding: "0 1rem",
     height: "42px",
     gap: "0",
     overflowX: "auto",
+    maxWidth: "100%",
+    boxSizing: "border-box",
   },
 
   tab: (activo, hover) => ({
     display: "flex",
     alignItems: "center",
     gap: "6px",
-    padding: "0 1.1rem",
+    padding: "0 1rem",
     height: "100%",
     fontSize: "13.5px",
     fontWeight: activo ? 600 : 500,
@@ -211,6 +318,7 @@ const S = {
     whiteSpace: "nowrap",
     transition: "color 0.15s, border-bottom-color 0.15s",
     outline: "none",
+    flexShrink: 0,
   }),
 
   adminChip: {
@@ -227,12 +335,49 @@ const S = {
   },
 };
 
+// ─── CSS responsive ───────────────────────────────────────────────────────────
+// Mobile-first: por defecto se muestra solo el avatar a la derecha.
+// A partir de 640px, aparece el grupo completo (badge, nombre, logout)
+// y se oculta el botón de avatar-con-menú.
+const RESPONSIVE_CSS = `
+  .navbar-right-full { display: none; }
+  .navbar-avatar-only { display: flex; }
+
+  @media (min-width: 640px) {
+    .navbar-right-full { display: flex; }
+    .navbar-avatar-only { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .navbar-dropdown { animation: none !important; }
+  }
+`;
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function Navbar({ empleado, paginaActual, onNavegar, onLogout }) {
   const periodo = usePeriodo();
 
-  const [hoverLogout, setHoverLogout] = useState(false);
-  const [hoverTabs,   setHoverTabs]   = useState({});
+  const [hoverLogout,    setHoverLogout]    = useState(false);
+  const [hoverDropLogout,setHoverDropLogout]= useState(false);
+  const [hoverTabs,      setHoverTabs]      = useState({});
+  const [menuAbierto,    setMenuAbierto]    = useState(false);
+  const menuRef = useRef(null);
+
+  // Cerrar el menú al tocar afuera
+  useEffect(() => {
+    if (!menuAbierto) return;
+    function handleClickFuera(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuAbierto(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickFuera);
+    document.addEventListener("touchstart", handleClickFuera);
+    return () => {
+      document.removeEventListener("mousedown", handleClickFuera);
+      document.removeEventListener("touchstart", handleClickFuera);
+    };
+  }, [menuAbierto]);
 
   function handleLogout() {
     localStorage.removeItem("token");
@@ -249,6 +394,7 @@ export default function Navbar({ empleado, paginaActual, onNavegar, onLogout }) 
       role="navigation"
       aria-label="Navegación principal"
     >
+      <style>{RESPONSIVE_CSS}</style>
 
       {/* ── Franja superior ─────────────────────────────────────────── */}
       <div style={S.topBar}>
@@ -256,28 +402,24 @@ export default function Navbar({ empleado, paginaActual, onNavegar, onLogout }) 
         {/* Izquierda: logo */}
         <div style={S.logoWrap}>
           <div style={S.logoMark}>RP</div>
-          <div>
+          <div style={{ minWidth: 0, overflow: "hidden" }}>
             <div style={S.logoText}>PROESA</div>
             <div style={S.logoSub}>Relevamiento de Precios</div>
           </div>
         </div>
 
-        {/* Derecha: badge período · divider · avatar · nombre/rol · divider · logout */}
-        <div style={S.rightGroup}>
-
-          {/* Badge período */}
+        {/* ── Derecha en desktop (≥640px): grupo completo ──────────── */}
+        <div className="navbar-right-full" style={S.rightGroupFull}>
           <div style={S.periodBadge}>
-            📅 {periodo}
+            <Icon.Calendario /> {periodo}
           </div>
 
           <div style={S.dividerV} />
 
-          {/* Avatar */}
           <div style={S.avatarCircle} title={empleado?.nombre}>
             {iniciales(empleado?.nombre)}
           </div>
 
-          {/* Nombre y rol */}
           <div style={S.empleadoInfo}>
             <span style={S.empleadoNombre}>{empleado?.nombre ?? "—"}</span>
             <span style={S.empleadoRol}>{empleado?.rol ?? ""}</span>
@@ -285,7 +427,6 @@ export default function Navbar({ empleado, paginaActual, onNavegar, onLogout }) 
 
           <div style={S.dividerV} />
 
-          {/* Logout */}
           <button
             style={S.btnLogout(hoverLogout)}
             onClick={handleLogout}
@@ -293,10 +434,51 @@ export default function Navbar({ empleado, paginaActual, onNavegar, onLogout }) 
             onMouseLeave={() => setHoverLogout(false)}
             title="Cerrar sesión"
           >
-            🚪 Salir
+            <Icon.Salida /> Salir
+          </button>
+        </div>
+
+        {/* ── Derecha en mobile (<640px): solo avatar + menú ───────── */}
+        <div className="navbar-avatar-only" ref={menuRef} style={{ position: "relative" }}>
+          <button
+            style={S.avatarBtn}
+            onClick={() => setMenuAbierto(v => !v)}
+            aria-label="Abrir menú de cuenta"
+            aria-expanded={menuAbierto}
+            type="button"
+          >
+            <div style={S.avatarCircle} title={empleado?.nombre}>
+              {iniciales(empleado?.nombre)}
+            </div>
           </button>
 
+          {menuAbierto && (
+            <div className="navbar-dropdown" style={S.dropdownWrap}>
+              <div style={S.dropdownHeader}>
+                <div style={S.avatarCircle}>{iniciales(empleado?.nombre)}</div>
+                <div>
+                  <div style={S.dropdownNombre}>{empleado?.nombre ?? "—"}</div>
+                  <div style={S.dropdownRol}>{empleado?.rol ?? ""}</div>
+                </div>
+              </div>
+
+              <div style={S.dropdownPeriodo}>
+                <Icon.Calendario /> {periodo}
+              </div>
+
+              <button
+                style={S.dropdownLogoutBtn(hoverDropLogout)}
+                onClick={handleLogout}
+                onMouseEnter={() => setHoverDropLogout(true)}
+                onMouseLeave={() => setHoverDropLogout(false)}
+                type="button"
+              >
+                <Icon.Salida /> Cerrar sesión
+              </button>
+            </div>
+          )}
         </div>
+
       </div>
 
       {/* ── Franja inferior: tabs ────────────────────────────────────── */}

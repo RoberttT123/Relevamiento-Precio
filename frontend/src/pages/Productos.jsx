@@ -30,7 +30,9 @@ const C = {
   border:    "#E6E6E6",
 };
 
-const API = import.meta.env.VITE_API_URL ?? "";
+// ─── Base de API, sin barra final ────────────────────────────────────────────
+// Evita el bug de "//api/..." si VITE_API_URL quedó con "/" al final en el .env.
+const API = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 
 // ─── Orden de fuentes para mostrar dentro de cada categoría ──────────────────
 const ORDEN_FUENTE = { PROESA: 0, COMPETENCIA: 1, SEGUIDOR: 2 };

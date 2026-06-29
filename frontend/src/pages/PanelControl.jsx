@@ -4,6 +4,8 @@
  * --------------------------------------------------
  * Cards de resumen del período
  * Tabla histórica filtrable por período / rubro / fuente
+ *   → En mobile (<860px) se muestra como cards apiladas, una por producto.
+ *   → En desktop (≥860px) se muestra como tabla completa (ver RESPONSIVE_CSS).
  * Gráfico de comparativa entre dos períodos (GraficoMargen)
  *
  * Props:
@@ -32,7 +34,9 @@ const C = {
   border:     "#E6E6E6",
 };
 
-const API = import.meta.env.VITE_API_URL ?? "";
+// ─── Base de API, sin barra final ────────────────────────────────────────────
+// Evita el bug de "//api/..." si VITE_API_URL quedó con "/" al final en el .env.
+const API = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function periodoActual() {
@@ -60,6 +64,13 @@ function colorMargen(pct) {
   return C.red;
 }
 
+function bgMargen(pct) {
+  if (pct === null || pct === undefined) return C.gray100;
+  if (pct >= 20) return C.greenLight;
+  if (pct >= 10) return C.amberLight;
+  return C.redLight;
+}
+
 // ─── Estilos ──────────────────────────────────────────────────────────────────
 const S = {
   page: {
@@ -72,18 +83,18 @@ const S = {
   filterBar: {
     background: C.white,
     borderBottom: `1px solid ${C.border}`,
-    padding: "12px 1.5rem",
+    padding: "12px 1rem",
     display: "flex",
     flexWrap: "wrap",
     gap: "10px",
     alignItems: "center",
   },
   select: (activo) => ({
-    height: "36px",
+    height: "40px",
     padding: "0 28px 0 10px",
     border: `1px solid ${activo ? C.red : C.border}`,
     borderRadius: "8px",
-    fontSize: "13px",
+    fontSize: "13.5px",
     color: activo ? C.navy : C.gray600,
     background: activo ? C.redLight : C.gray50,
     outline: "none",
@@ -93,55 +104,58 @@ const S = {
     backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
     backgroundRepeat: "no-repeat",
     backgroundPosition: "right 10px center",
-    minWidth: "130px",
+    minWidth: "0",
+    flex: "1 1 140px",
     transition: "all 0.15s",
+    WebkitAppearance: "none",
   }),
   filterLabel: {
     fontSize: "12px",
     color: C.gray400,
     fontWeight: 500,
     whiteSpace: "nowrap",
+    flexShrink: 0,
   },
 
   // ── Cards de resumen ──────────────────────────────────────────────────────
   cardsGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-    gap: "12px",
-    padding: "1.2rem 1.5rem 0",
+    gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+    gap: "10px",
+    padding: "1rem 1rem 0",
   },
   card: {
     background: C.white,
     borderRadius: "12px",
     border: `1px solid ${C.border}`,
-    padding: "14px 16px",
+    padding: "13px 14px",
     display: "flex",
     flexDirection: "column",
     gap: "4px",
   },
-  cardIcon: { fontSize: "20px", marginBottom: "2px" },
+  cardIcon: { fontSize: "19px", marginBottom: "2px" },
   cardLabel: {
-    fontSize: "10.5px",
+    fontSize: "10px",
     fontWeight: 600,
     color: C.gray400,
-    letterSpacing: "0.6px",
+    letterSpacing: "0.5px",
     textTransform: "uppercase",
   },
   cardValor: (color = C.navy) => ({
-    fontSize: "24px",
+    fontSize: "21px",
     fontWeight: 700,
     color,
     lineHeight: 1.1,
   }),
   cardSub: {
-    fontSize: "11px",
+    fontSize: "10.5px",
     color: C.gray400,
     marginTop: "2px",
   },
 
   // ── Sección comparativa ───────────────────────────────────────────────────
   seccion: {
-    margin: "1.2rem 1.5rem 0",
+    margin: "1rem 1rem 0",
     background: C.white,
     borderRadius: "12px",
     border: `1px solid ${C.border}`,
@@ -151,13 +165,13 @@ const S = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "12px 16px",
+    padding: "12px 14px",
     borderBottom: `1px solid ${C.border}`,
     flexWrap: "wrap",
     gap: "8px",
   },
   seccionTitulo: {
-    fontSize: "14px",
+    fontSize: "13.5px",
     fontWeight: 600,
     color: C.navy,
     display: "flex",
@@ -169,6 +183,7 @@ const S = {
     alignItems: "center",
     gap: "8px",
     flexWrap: "wrap",
+    width: "100%",
   },
   vsLabel: {
     fontSize: "11px",
@@ -177,20 +192,21 @@ const S = {
     padding: "0 2px",
   },
   btnComparar: (hover) => ({
-    height: "32px",
-    padding: "0 14px",
+    height: "36px",
+    padding: "0 16px",
     background: hover ? C.redHover : C.red,
     color: C.white,
     border: "none",
     borderRadius: "7px",
-    fontSize: "12px",
+    fontSize: "13px",
     fontWeight: 600,
     cursor: "pointer",
     transition: "background 0.15s",
     whiteSpace: "nowrap",
+    flex: "1 1 auto",
   }),
 
-  // ── Tabla histórica ───────────────────────────────────────────────────────
+  // ── Tabla histórica (desktop) ─────────────────────────────────────────────
   tableWrap: {
     overflowX: "auto",
     padding: "0 0 4px",
@@ -234,6 +250,76 @@ const S = {
     color: colorMargen(pct),
   }),
 
+  // ── Cards de producto (mobile) ────────────────────────────────────────────
+  cardListWrap: {
+    padding: "10px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  prodCard: {
+    border: `1px solid ${C.gray100}`,
+    borderRadius: "10px",
+    padding: "11px 12px",
+    background: C.white,
+  },
+  prodCardTop: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "8px",
+    marginBottom: "8px",
+  },
+  prodCardInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  prodCardNombre: {
+    fontSize: "13.5px",
+    fontWeight: 600,
+    color: C.navy,
+    lineHeight: 1.3,
+  },
+  prodCardMeta: {
+    fontSize: "11.5px",
+    color: C.gray400,
+    marginTop: "2px",
+  },
+  prodCardPreciosGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "8px",
+    marginTop: "8px",
+  },
+  precioBlock: {
+    background: C.gray50,
+    borderRadius: "8px",
+    padding: "7px 9px",
+  },
+  precioBlockLabel: {
+    fontSize: "9.5px",
+    fontWeight: 600,
+    color: C.gray400,
+    letterSpacing: "0.4px",
+    textTransform: "uppercase",
+    marginBottom: "3px",
+  },
+  precioBlockRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    fontSize: "12.5px",
+    color: C.navy,
+  },
+  prodCardFooter: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: "8px",
+    fontSize: "11px",
+    color: C.gray400,
+  },
+
   // ── Estado vacío / carga ──────────────────────────────────────────────────
   estadoCenter: {
     display: "flex",
@@ -257,6 +343,32 @@ const S = {
   }),
 };
 
+// ─── CSS responsive: alterna entre vista de cards (mobile) y tabla (desktop) ─
+// Por defecto (mobile-first) se muestran las cards y la tabla queda oculta.
+// A partir de 860px se invierte: aparece la tabla y se ocultan las cards.
+const RESPONSIVE_CSS = `
+  .panel-cards-list { display: block; }
+  .panel-table-wrap { display: none; }
+
+  @media (min-width: 860px) {
+    .panel-cards-list { display: none; }
+    .panel-table-wrap { display: block; }
+  }
+
+  @media (min-width: 640px) {
+    .panel-filter-bar {
+      flex-wrap: nowrap !important;
+    }
+    .panel-select {
+      flex: 0 1 170px !important;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel-shimmer { animation: none !important; }
+  }
+`;
+
 // ─── Períodos disponibles (últimos 12 meses) ──────────────────────────────────
 function ultimosPeriodos(n = 12) {
   const result = [];
@@ -268,6 +380,76 @@ function ultimosPeriodos(n = 12) {
     d.setMonth(d.getMonth() - 1);
   }
   return result;
+}
+
+// ─── Card de producto para vista mobile ──────────────────────────────────────
+function ProductoCard({ row }) {
+  return (
+    <div style={S.prodCard}>
+      {/* Encabezado: fuente + nombre + marca */}
+      <div style={S.prodCardTop}>
+        <div style={S.prodCardInfo}>
+          <div style={S.prodCardNombre}>{row.descripcion}</div>
+          <div style={S.prodCardMeta}>
+            {row.marca}
+            {row.grameaje_ml != null ? ` · ${row.grameaje_ml} g/ml` : ""}
+            {" · "}{row.categoria}
+          </div>
+        </div>
+        <span style={S.chip(
+          row.fuente === "PROESA" ? C.white : C.red,
+          row.fuente === "PROESA" ? C.navy : C.redLight,
+        )}>
+          {row.fuente === "PROESA" ? "✦ PROESA" : "⚡ Comp."}
+        </span>
+      </div>
+
+      {/* Precios caja / unidad lado a lado */}
+      <div style={S.prodCardPreciosGrid}>
+        <div style={{ ...S.precioBlock, background: bgMargen(row.margen_caja_pct) }}>
+          <div style={S.precioBlockLabel}>Por caja</div>
+          <div style={S.precioBlockRow}>
+            <span>
+              {row.precio_compra_caja != null
+                ? `Bs ${row.precio_compra_caja.toFixed(2)}` : "—"}
+              {" → "}
+              {row.precio_venta_caja != null
+                ? `Bs ${row.precio_venta_caja.toFixed(2)}` : "—"}
+            </span>
+          </div>
+          <div style={{ ...S.margenCell(row.margen_caja_pct), fontSize: "13px", marginTop: "2px" }}>
+            {row.margen_caja_pct != null ? `${row.margen_caja_pct.toFixed(1)}%` : "—"}
+          </div>
+        </div>
+
+        <div style={{ ...S.precioBlock, background: bgMargen(row.margen_unidad_pct) }}>
+          <div style={S.precioBlockLabel}>Por unidad</div>
+          <div style={S.precioBlockRow}>
+            <span>
+              {row.precio_compra_unidad != null
+                ? `Bs ${row.precio_compra_unidad.toFixed(2)}` : "—"}
+              {" → "}
+              {row.precio_venta_unidad != null
+                ? `Bs ${row.precio_venta_unidad.toFixed(2)}` : "—"}
+            </span>
+          </div>
+          <div style={{ ...S.margenCell(row.margen_unidad_pct), fontSize: "13px", marginTop: "2px" }}>
+            {row.margen_unidad_pct != null ? `${row.margen_unidad_pct.toFixed(1)}%` : "—"}
+          </div>
+        </div>
+      </div>
+
+      {/* Footer: rubro + última edición */}
+      <div style={S.prodCardFooter}>
+        <span>{row.rubro}</span>
+        <span>
+          {row.ultima_edicion
+            ? new Date(row.ultima_edicion).toLocaleDateString("es-BO")
+            : "—"}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -368,7 +550,7 @@ export default function PanelControl({ empleado }) {
         <span style={S.cardLabel}>{label}</span>
         <span style={S.cardValor(colorValor)}>
           {loadRes
-            ? <span style={S.skeletonLine("60%", "28px")} />
+            ? <span className="panel-shimmer" style={S.skeletonLine("60%", "26px")} />
             : valor ?? "—"}
         </span>
         {sub && <span style={S.cardSub}>{sub}</span>}
@@ -379,12 +561,13 @@ export default function PanelControl({ empleado }) {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={S.page}>
-      <style>{`@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
+      <style>{`@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} } ${RESPONSIVE_CSS}`}</style>
 
       {/* ── Barra de filtros ─────────────────────────────────────────── */}
-      <div style={S.filterBar}>
+      <div className="panel-filter-bar" style={S.filterBar}>
         <span style={S.filterLabel}>Período</span>
         <select
+          className="panel-select"
           value={periodoSel}
           onChange={e => setPeriodoSel(e.target.value)}
           style={S.select(true)}
@@ -395,6 +578,7 @@ export default function PanelControl({ empleado }) {
         </select>
 
         <select
+          className="panel-select"
           value={rubroSel}
           onChange={e => setRubroSel(e.target.value)}
           style={S.select(!!rubroSel)}
@@ -405,11 +589,16 @@ export default function PanelControl({ empleado }) {
           <option>Higiene y Limpieza</option>
         </select>
 
-        <select value={fuenteSel} onChange={e => setFuenteSel(e.target.value)} style={S.select(!!fuenteSel)}>
-        <option value="">PROESA + Competencia + Seguidor</option>
-        <option value="PROESA">✦ Solo PROESA</option>
-        <option value="COMPETENCIA">⚡ Solo Competencia</option>
-        <option value="SEGUIDOR">◎ Solo Seguidor</option>
+        <select
+          className="panel-select"
+          value={fuenteSel}
+          onChange={e => setFuenteSel(e.target.value)}
+          style={S.select(!!fuenteSel)}
+        >
+          <option value="">PROESA + Competencia + Seguidor</option>
+          <option value="PROESA">✦ Solo PROESA</option>
+          <option value="COMPETENCIA">⚡ Solo Competencia</option>
+          <option value="SEGUIDOR">◎ Solo Seguidor</option>
         </select>
       </div>
 
@@ -457,7 +646,7 @@ export default function PanelControl({ empleado }) {
       </div>
 
       {/* ── Comparativa entre períodos + gráfico ─────────────────────── */}
-      <div style={{ ...S.seccion, margin: "1.2rem 1.5rem 0" }}>
+      <div style={S.seccion}>
         <div style={S.seccionHeader}>
           <div style={S.seccionTitulo}>
             📈 Comparativa de precios
@@ -466,7 +655,7 @@ export default function PanelControl({ empleado }) {
             <select
               value={periodoA}
               onChange={e => setPeriodoA(e.target.value)}
-              style={S.select(true)}
+              style={{ ...S.select(true), flex: "1 1 auto" }}
             >
               {periodos.map(p => (
                 <option key={p} value={p}>{periodoLabel(p)}</option>
@@ -476,7 +665,7 @@ export default function PanelControl({ empleado }) {
             <select
               value={periodoB}
               onChange={e => setPeriodoB(e.target.value)}
-              style={S.select(true)}
+              style={{ ...S.select(true), flex: "1 1 auto" }}
             >
               {periodos.map(p => (
                 <option key={p} value={p}>{periodoLabel(p)}</option>
@@ -515,8 +704,8 @@ export default function PanelControl({ empleado }) {
         )}
       </div>
 
-      {/* ── Tabla histórica ──────────────────────────────────────────── */}
-      <div style={{ ...S.seccion, margin: "1.2rem 1.5rem 1.5rem" }}>
+      {/* ── Detalle histórico: cards en mobile, tabla en desktop ──────── */}
+      <div style={{ ...S.seccion, margin: "1rem 1rem 1.5rem" }}>
         <div style={S.seccionHeader}>
           <div style={S.seccionTitulo}>
             📋 Detalle — {periodoLabel(periodoSel)}
@@ -526,99 +715,108 @@ export default function PanelControl({ empleado }) {
           </span>
         </div>
 
-        <div style={S.tableWrap}>
-          {loadPanel ? (
-            <div style={{ padding: "16px" }}>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} style={{
-                  display: "flex", gap: "12px", marginBottom: "10px",
-                  alignItems: "center",
-                }}>
-                  <span style={S.skeletonLine("15%")} />
-                  <span style={S.skeletonLine("25%")} />
-                  <span style={S.skeletonLine("10%")} />
-                  <span style={S.skeletonLine("10%")} />
-                  <span style={S.skeletonLine("10%")} />
-                </div>
+        {loadPanel ? (
+          <div style={{ padding: "16px" }}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} style={{
+                display: "flex", gap: "12px", marginBottom: "10px",
+                alignItems: "center",
+              }}>
+                <span className="panel-shimmer" style={S.skeletonLine("20%")} />
+                <span className="panel-shimmer" style={S.skeletonLine("35%")} />
+                <span className="panel-shimmer" style={S.skeletonLine("15%")} />
+                <span className="panel-shimmer" style={S.skeletonLine("15%")} />
+              </div>
+            ))}
+          </div>
+        ) : panelData.length === 0 ? (
+          <div style={S.estadoCenter}>
+            <span style={{ fontSize: "26px" }}>🗂️</span>
+            <span style={{ fontSize: "13px" }}>
+              Sin datos para {periodoLabel(periodoSel)} con los filtros aplicados.
+            </span>
+          </div>
+        ) : (
+          <>
+            {/* ── Vista cards (mobile) ──────────────────────────────── */}
+            <div className="panel-cards-list" style={S.cardListWrap}>
+              {panelData.map((row, i) => (
+                <ProductoCard key={i} row={row} />
               ))}
             </div>
-          ) : panelData.length === 0 ? (
-            <div style={S.estadoCenter}>
-              <span style={{ fontSize: "26px" }}>🗂️</span>
-              <span style={{ fontSize: "13px" }}>
-                Sin datos para {periodoLabel(periodoSel)} con los filtros aplicados.
-              </span>
-            </div>
-          ) : (
-            <table style={S.table}>
-              <thead>
-                <tr>
-                  {[
-                    "Rubro","Categoría","Fuente","Marca","Producto",
-                    "Gr/ML","P. Compra Caja","P. Venta Caja",
-                    "Margen Caja","P. Compra Ud.","P. Venta Ud.",
-                    "Margen Ud.","Última edición",
-                  ].map(h => (
-                    <th key={h} style={S.th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {panelData.map((row, i) => (
-                  <tr key={i}>
-                    <td style={S.td(i)}>{row.rubro}</td>
-                    <td style={S.td(i)}>{row.categoria}</td>
-                    <td style={S.td(i)}>
-                      <span style={S.chip(
-                        row.fuente === "PROESA" ? C.white : C.red,
-                        row.fuente === "PROESA" ? C.navy : C.redLight,
-                      )}>
-                        {row.fuente === "PROESA" ? "✦ PROESA" : "⚡ Comp."}
-                      </span>
-                    </td>
-                    <td style={S.td(i)}>{row.marca}</td>
-                    <td style={{ ...S.td(i), maxWidth: "200px",
-                      overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {row.descripcion}
-                    </td>
-                    <td style={S.td(i)}>
-                      {row.grameaje_ml != null ? `${row.grameaje_ml}` : "—"}
-                    </td>
-                    <td style={S.td(i)}>
-                      {row.precio_compra_caja != null
-                        ? `Bs ${row.precio_compra_caja.toFixed(2)}` : "—"}
-                    </td>
-                    <td style={S.td(i)}>
-                      {row.precio_venta_caja != null
-                        ? `Bs ${row.precio_venta_caja.toFixed(2)}` : "—"}
-                    </td>
-                    <td style={{ ...S.td(i), ...S.margenCell(row.margen_caja_pct) }}>
-                      {row.margen_caja_pct != null
-                        ? `${row.margen_caja_pct.toFixed(1)}%` : "—"}
-                    </td>
-                    <td style={S.td(i)}>
-                      {row.precio_compra_unidad != null
-                        ? `Bs ${row.precio_compra_unidad.toFixed(2)}` : "—"}
-                    </td>
-                    <td style={S.td(i)}>
-                      {row.precio_venta_unidad != null
-                        ? `Bs ${row.precio_venta_unidad.toFixed(2)}` : "—"}
-                    </td>
-                    <td style={{ ...S.td(i), ...S.margenCell(row.margen_unidad_pct) }}>
-                      {row.margen_unidad_pct != null
-                        ? `${row.margen_unidad_pct.toFixed(1)}%` : "—"}
-                    </td>
-                    <td style={{ ...S.td(i), color: C.gray400, fontSize: "11px" }}>
-                      {row.ultima_edicion
-                        ? new Date(row.ultima_edicion).toLocaleDateString("es-BO")
-                        : "—"}
-                    </td>
+
+            {/* ── Vista tabla (desktop, ≥860px) ─────────────────────── */}
+            <div className="panel-table-wrap" style={S.tableWrap}>
+              <table style={S.table}>
+                <thead>
+                  <tr>
+                    {[
+                      "Rubro","Categoría","Fuente","Marca","Producto",
+                      "Gr/ML","P. Compra Caja","P. Venta Caja",
+                      "Margen Caja","P. Compra Ud.","P. Venta Ud.",
+                      "Margen Ud.","Última edición",
+                    ].map(h => (
+                      <th key={h} style={S.th}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+                </thead>
+                <tbody>
+                  {panelData.map((row, i) => (
+                    <tr key={i}>
+                      <td style={S.td(i)}>{row.rubro}</td>
+                      <td style={S.td(i)}>{row.categoria}</td>
+                      <td style={S.td(i)}>
+                        <span style={S.chip(
+                          row.fuente === "PROESA" ? C.white : C.red,
+                          row.fuente === "PROESA" ? C.navy : C.redLight,
+                        )}>
+                          {row.fuente === "PROESA" ? "✦ PROESA" : "⚡ Comp."}
+                        </span>
+                      </td>
+                      <td style={S.td(i)}>{row.marca}</td>
+                      <td style={{ ...S.td(i), maxWidth: "200px",
+                        overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {row.descripcion}
+                      </td>
+                      <td style={S.td(i)}>
+                        {row.grameaje_ml != null ? `${row.grameaje_ml}` : "—"}
+                      </td>
+                      <td style={S.td(i)}>
+                        {row.precio_compra_caja != null
+                          ? `Bs ${row.precio_compra_caja.toFixed(2)}` : "—"}
+                      </td>
+                      <td style={S.td(i)}>
+                        {row.precio_venta_caja != null
+                          ? `Bs ${row.precio_venta_caja.toFixed(2)}` : "—"}
+                      </td>
+                      <td style={{ ...S.td(i), ...S.margenCell(row.margen_caja_pct) }}>
+                        {row.margen_caja_pct != null
+                          ? `${row.margen_caja_pct.toFixed(1)}%` : "—"}
+                      </td>
+                      <td style={S.td(i)}>
+                        {row.precio_compra_unidad != null
+                          ? `Bs ${row.precio_compra_unidad.toFixed(2)}` : "—"}
+                      </td>
+                      <td style={S.td(i)}>
+                        {row.precio_venta_unidad != null
+                          ? `Bs ${row.precio_venta_unidad.toFixed(2)}` : "—"}
+                      </td>
+                      <td style={{ ...S.td(i), ...S.margenCell(row.margen_unidad_pct) }}>
+                        {row.margen_unidad_pct != null
+                          ? `${row.margen_unidad_pct.toFixed(1)}%` : "—"}
+                      </td>
+                      <td style={{ ...S.td(i), color: C.gray400, fontSize: "11px" }}>
+                        {row.ultima_edicion
+                          ? new Date(row.ultima_edicion).toLocaleDateString("es-BO")
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
     </div>
