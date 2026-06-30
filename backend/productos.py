@@ -5,8 +5,8 @@ productos.py — Rutas de productos
 GET    /api/productos                → lista productos con filtros opcionales
 GET    /api/productos/:id            → detalle de un producto
 POST   /api/productos                → crear producto nuevo (solo admin)
-PUT    /api/productos/:id            → editar grameaje, marca, descripción
-                                       (fuente es inmutable — no se puede cambiar)
+PUT    /api/productos/:id            → editar grameaje, marca, descripción, grupo
+PUT    /api/productos/:id/lider      → marcar/desmarcar como líder dentro de su grupo
 DELETE /api/productos/:id            → desactivar producto (soft delete, solo admin)
 POST   /api/productos/:id/imagen     → subir imagen a Cloudinary y guardar URL
 """
@@ -51,7 +51,7 @@ class ProductoOut(BaseModel):
     categoria_id:     int
     categoria_nombre: str | None = None
     rubro_nombre:     str | None = None
-    fuente:           Literal["PROESA", "COMPETENCIA", "SEGUIDOR"]
+    fuente:           Literal["LIDER", "COMPETENCIA", "SEGUIDOR"]
     marca:            str
     codigo:           str | None
     descripcion:      str
@@ -59,25 +59,29 @@ class ProductoOut(BaseModel):
     unidades_caja:    float | None
     imagen_url:       str | None
     activo:           bool
+    grupo:            str | None = None   # Agrupamiento para Price Index (ej: "Galletas Six Pack")
+    es_lider:         bool = False        # True = este producto es el líder del grupo
 
 
 class ProductoCreate(BaseModel):
     categoria_id:  int
-    fuente:        Literal["PROESA", "COMPETENCIA", "SEGUIDOR"]
+    fuente:        Literal["LIDER", "COMPETENCIA", "SEGUIDOR"]
     marca:         str
     codigo:        str | None = None
     descripcion:   str
     grameaje_ml:   float | None = None
     unidades_caja: float | None = None
+    grupo:         str | None = None
 
 
 class ProductoUpdate(BaseModel):
-    # ── FUENTE NO ESTÁ AQUÍ — es inmutable una vez creado el producto ────────
+    # fuente NO está aquí — es inmutable una vez creado el producto
     marca:         str | None = None
     codigo:        str | None = None
     descripcion:   str | None = None
     grameaje_ml:   float | None = None
     unidades_caja: float | None = None
+    grupo:         str | None = None   # Ahora editable: permite asignar/cambiar el grupo
 
 
 class ImagenResponse(BaseModel):
@@ -90,6 +94,9 @@ def _enriquecer(prod: dict, cats: dict) -> dict:
     cat = cats.get(prod.get("categoria_id"))
     prod["categoria_nombre"] = cat["nombre"]       if cat else None
     prod["rubro_nombre"]     = cat["rubro_nombre"] if cat else None
+    # Asegurar defaults para campos nuevos por si vienen null de Supabase
+    if prod.get("es_lider") is None:
+        prod["es_lider"] = False
     return prod
 
 
@@ -113,8 +120,9 @@ def _cargar_categorias() -> dict:
 def listar_productos(
     rubro:     str | None = Query(None),
     categoria: str | None = Query(None),
-    fuente:    Literal["PROESA", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
+    fuente:    Literal["LIDER", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
     busqueda:  str | None = Query(None),
+    grupo:     str | None = Query(None),
     activo:    bool       = Query(True),
     _empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
 ):
@@ -126,6 +134,8 @@ def listar_productos(
     )
     if fuente:
         query = query.eq("fuente", fuente)
+    if grupo:
+        query = query.eq("grupo", grupo)
 
     data = query.execute().data or []
     cats = _cargar_categorias()
@@ -145,6 +155,8 @@ def listar_productos(
                 continue
         prod["categoria_nombre"] = cat["nombre"]
         prod["rubro_nombre"]     = cat["rubro_nombre"]
+        if prod.get("es_lider") is None:
+            prod["es_lider"] = False
         result.append(prod)
 
     return result
@@ -183,6 +195,7 @@ def crear_producto(
         )
 
     nuevo = body.model_dump(exclude_none=True)
+    nuevo.setdefault("es_lider", False)
     resp  = supabase.table("productos").insert(nuevo).execute()
 
     if not resp.data:
@@ -200,14 +213,15 @@ def editar_producto(
     empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)],
 ):
     """
-    Edita marca, código, descripción, grameaje_ml y unidades_caja.
+    Edita marca, código, descripción, grameaje_ml, unidades_caja y grupo.
     La fuente NO se puede cambiar — queda fija desde la creación.
-    Si alguien envía 'fuente' en el body, se ignora silenciosamente.
+    Para marcar/desmarcar líder usar PUT /api/productos/:id/lider.
     """
     cambios = body.model_dump(exclude_none=True)
 
-    # ── Doble seguridad: ignorar fuente aunque venga en el body ──────────────
-    cambios.pop("fuente", None)
+    # Doble seguridad: ignorar fuente y es_lider aunque vengan en el body
+    cambios.pop("fuente",   None)
+    cambios.pop("es_lider", None)
 
     if not cambios:
         raise HTTPException(
@@ -237,6 +251,71 @@ def editar_producto(
 
     cats = _cargar_categorias()
     return _enriquecer(resp.data[0], cats)
+
+
+# ─── PUT /api/productos/:id/lider ────────────────────────────────────────────
+@router.put("/{producto_id}/lider", response_model=ProductoOut)
+def toggle_lider(
+    producto_id: str,
+    empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)],
+):
+    """
+    Marca este producto como líder de su grupo y desmarca al anterior líder.
+    Si el producto ya era líder, lo desmarca (toggle).
+    Solo admins pueden hacer esto.
+
+    Lógica:
+    1. Obtener el producto para saber su grupo y estado actual de es_lider.
+    2. Si no tiene grupo asignado, no se puede calcular Price Index → error.
+    3. Si ya es líder → desmarcar (es_lider = False).
+    4. Si no era líder → desmarcar todos los del mismo grupo y marcar este.
+    """
+    if empleado.rol != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden cambiar el líder.",
+        )
+
+    # 1. Obtener producto actual
+    prod_resp = (
+        supabase.table("productos")
+        .select("id, grupo, es_lider")
+        .eq("id", producto_id)
+        .single()
+        .execute()
+    )
+    if not prod_resp.data:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+
+    prod = prod_resp.data
+    grupo = prod.get("grupo")
+
+    if not grupo:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El producto no tiene un grupo asignado. Asigná un grupo antes de marcarlo como líder.",
+        )
+
+    ya_es_lider = prod.get("es_lider", False)
+
+    if ya_es_lider:
+        # Toggle OFF: solo desmarcar este producto
+        supabase.table("productos").update({"es_lider": False}).eq("id", producto_id).execute()
+    else:
+        # Toggle ON: desmarcar todos del grupo y marcar este
+        supabase.table("productos").update({"es_lider": False}).eq("grupo", grupo).execute()
+        supabase.table("productos").update({"es_lider": True}).eq("id", producto_id).execute()
+
+    # Devolver el producto actualizado
+    resultado = (
+        supabase.table("productos")
+        .select("*")
+        .eq("id", producto_id)
+        .single()
+        .execute()
+    )
+    cats = _cargar_categorias()
+    return _enriquecer(resultado.data, cats)
 
 
 # ─── DELETE /api/productos/:id ────────────────────────────────────────────────

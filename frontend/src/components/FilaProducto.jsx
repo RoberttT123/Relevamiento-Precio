@@ -2,21 +2,22 @@
 /**
  * FilaProducto.jsx — Fila editable dentro del acordeón de categoría
  * ------------------------------------------------------------------
- * Muestra: badge fuente · nombre · precios compra/venta · margen
+ * Muestra: badge fuente · nombre · precios compra/venta · margen · price index
  * Al tocar la fila se expande para editar los campos.
- * Diseñado para comparar productos de la misma categoría lado a lado.
  *
  * Props:
  *   producto        { id, descripcion, marca, fuente, grameaje_ml,
- *                     imagen_url, categoria_nombre }
+ *                     imagen_url, categoria_nombre, grupo, es_lider }
  *   precioActual    { id, precio_compra_caja, precio_venta_caja,
  *                     precio_compra_unidad, precio_venta_unidad,
  *                     margen_caja_pct, margen_unidad_pct } | null
  *   relevamientoId  string
  *   empleado        { id, nombre, rol }
- *   esUltima        boolean (para no mostrar borde inferior en la última)
+ *   esUltima        boolean
  *   bloqueado       boolean (relevamiento finalizado)
  *   onGuardado      (precioActualizado) => void
+ *   onProductoActualizado (productoActualizado) => void  — para reflejar cambios de líder/grupo
+ *   precioLider     number | null — precio_venta_unidad del líder del mismo grupo
  */
 
 import { useState, useRef } from "react";
@@ -29,6 +30,7 @@ const C = {
   greenLight: "rgba(42,157,92,0.10)",
   amber:      "#E9A825",
   amberLight: "rgba(233,168,37,0.10)",
+  gold:       "#F5A623",
   white:      "#FFFFFF",
   gray50:     "#F8F9FF",
   gray100:    "#F0F0F0",
@@ -38,11 +40,10 @@ const C = {
 };
 
 // ─── Base de API, sin barra final ────────────────────────────────────────────
-// Evita el bug de "//api/..." si VITE_API_URL quedó con "/" al final en el .env.
 const API   = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 const TOUCH = 44;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function colorMargen(pct) {
   if (pct == null) return C.gray400;
   if (pct >= 20)   return C.green;
@@ -56,10 +57,34 @@ function bgMargen(pct) {
   return C.redLight;
 }
 
+// Price Index: precio_unidad_lider / precio_unidad_competidor × 100
+// Si el competidor es más caro que el líder → pasa el 100%
+function calcPriceIndex(precioUnidadProducto, precioUnidadLider) {
+  if (!precioUnidadProducto || !precioUnidadLider) return null;
+  const p = parseFloat(precioUnidadProducto);
+  const l = parseFloat(precioUnidadLider);
+  if (isNaN(p) || isNaN(l) || p === 0) return null;
+  return Math.round((l / p) * 10000) / 100;
+}
+
+function colorPriceIndex(pi) {
+  if (pi == null) return C.gray400;
+  if (pi <= 100)  return C.green;   // igual o más barato que el líder
+  if (pi <= 130)  return C.amber;   // hasta 30% más caro
+  return C.red;                     // más de 30% más caro que el líder
+}
+function bgPriceIndex(pi) {
+  if (pi == null) return C.gray100;
+  if (pi <= 100)  return C.greenLight;
+  if (pi <= 130)  return C.amberLight;
+  return C.redLight;
+}
+
+// ─── Configuración de badges por fuente ──────────────────────────────────────
 const FUENTE_CONFIG = {
-  PROESA:      { bg: C.navy,  fg: C.white, icon: "✦", label: "PROESA" },
-  COMPETENCIA: { bg: C.red,   fg: C.white, icon: "⚡", label: "COMP." },
-  SEGUIDOR:    { bg: C.amber, fg: C.navy,  icon: "◎", label: "SEG."  },
+  LIDER:       { bg: C.navy,  fg: C.white, icon: "⭐", label: "LÍDER"  },
+  COMPETENCIA: { bg: C.red,   fg: C.white, icon: "⚡", label: "COMP."  },
+  SEGUIDOR:    { bg: C.amber, fg: C.navy,  icon: "◎", label: "SEG."   },
 };
 
 function Spinner({ size = 16 }) {
@@ -135,18 +160,62 @@ function InputPrecio({ label, campo, valores, onChange, dirtyFields, disabled })
   );
 }
 
+// ─── Input de texto inline (para el campo grupo) ──────────────────────────────
+function InputTexto({ label, value, onChange, placeholder, disabled }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+      <span style={{ fontSize: "10px", fontWeight: 600, color: C.gray600,
+        letterSpacing: "0.4px", textTransform: "uppercase" }}>
+        {label}
+      </span>
+      <input
+        type="text"
+        value={value}
+        onChange={onChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder={placeholder}
+        disabled={disabled}
+        style={{
+          width: "100%",
+          height: `${TOUCH}px`,
+          padding: "0 12px",
+          border: `1.5px solid ${focused ? C.red : C.gray200}`,
+          borderRadius: "8px",
+          fontSize: "14px",
+          color: C.navy,
+          background: disabled ? C.gray100 : focused ? C.white : C.gray50,
+          outline: "none",
+          boxShadow: focused ? `0 0 0 3px ${C.redLight}` : "none",
+          transition: "border-color 0.15s",
+          boxSizing: "border-box",
+          fontFamily: "inherit",
+          WebkitAppearance: "none",
+          opacity: disabled ? 0.5 : 1,
+        }}
+      />
+    </div>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function FilaProducto({
   producto, precioActual, relevamientoId, empleado,
-  esUltima, bloqueado, onGuardado,
+  esUltima, bloqueado, onGuardado, onProductoActualizado,
+  precioLider,
 }) {
   const token       = localStorage.getItem("token") ?? "";
-  const fuente      = producto?.fuente ?? "PROESA";
-  const fc          = FUENTE_CONFIG[fuente] ?? FUENTE_CONFIG.PROESA;
+  const fuente      = producto?.fuente ?? "LIDER";
+  const fc          = FUENTE_CONFIG[fuente] ?? FUENTE_CONFIG.LIDER;
   const tienePrecio = !!precioActual?.id;
+  const esAdmin     = empleado?.rol === "admin";
 
-  const [expandido,   setExpandido]   = useState(false);
-  const [valores,     setValores]     = useState({
+  const [expandido,    setExpandido]    = useState(false);
+  const [esLider,      setEsLider]      = useState(producto?.es_lider ?? false);
+  const [grupo,        setGrupo]        = useState(producto?.grupo ?? "");
+  const [loadingLider, setLoadingLider] = useState(false);
+  const [valores,      setValores]      = useState({
     precio_compra_caja:   precioActual?.precio_compra_caja   ?? "",
     precio_venta_caja:    precioActual?.precio_venta_caja    ?? "",
     precio_compra_unidad: precioActual?.precio_compra_unidad ?? "",
@@ -178,12 +247,52 @@ export default function FilaProducto({
     return precioActual?.margen_unidad_pct ?? null;
   })();
 
+  // ── Price Index calculado en tiempo real ─────────────────────────────────
+  // Usa el precio de unidad del producto actual (editado o guardado)
+  // y el precio de unidad del líder del grupo que viene de Productos.jsx
+  const precioUnidadActual = parseFloat(valores.precio_venta_unidad) ||
+    parseFloat(precioActual?.precio_venta_unidad) || null;
+  const priceIndex = esLider ? 100 : calcPriceIndex(precioUnidadActual, precioLider);
+
   function handleChange(campo, valor) {
     setValores(v => ({ ...v, [campo]: valor }));
     setDirtyFields(d => ({ ...d, [campo]: true }));
     setIsDirty(true);
   }
 
+  // ── Toggle líder ─────────────────────────────────────────────────────────
+  async function handleToggleLider(e) {
+    e.stopPropagation(); // no colapsar/expandir la fila al tocar el botón
+    if (!esAdmin || loadingLider) return;
+
+    if (!grupo.trim()) {
+      mostrarToast("Asigná un grupo primero", "error");
+      setExpandido(true);
+      return;
+    }
+
+    setLoadingLider(true);
+    try {
+      const resp = await fetch(`${API}/api/productos/${producto.id}/lider`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail ?? "Error al cambiar líder.");
+      }
+      const prodActualizado = await resp.json();
+      setEsLider(prodActualizado.es_lider);
+      if (onProductoActualizado) onProductoActualizado(prodActualizado);
+      mostrarToast(prodActualizado.es_lider ? "⭐ Marcado como líder" : "Desmarcado como líder", "ok");
+    } catch (err) {
+      mostrarToast(err.message ?? "Error", "error");
+    } finally {
+      setLoadingLider(false);
+    }
+  }
+
+  // ── Guardar precios y grupo ───────────────────────────────────────────────
   async function handleGuardar() {
     if (!isDirty || loading || bloqueado) return;
     setLoading(true);
@@ -194,6 +303,11 @@ export default function FilaProducto({
     if (dirtyFields.grameaje_ml && valores.grameaje_ml !== "")
       cambiosProducto.grameaje_ml = parseFloat(valores.grameaje_ml);
 
+    // Guardar grupo si cambió
+    const grupoActual = producto?.grupo ?? "";
+    if (grupo !== grupoActual)
+      cambiosProducto.grupo = grupo.trim() || null;
+
     ["precio_compra_caja","precio_venta_caja",
      "precio_compra_unidad","precio_venta_unidad"].forEach(c => {
       if (dirtyFields[c] && valores[c] !== "")
@@ -202,12 +316,16 @@ export default function FilaProducto({
 
     try {
       if (Object.keys(cambiosProducto).length > 0) {
-        await fetch(`${API}/api/productos/${producto.id}`, {
+        const r = await fetch(`${API}/api/productos/${producto.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json",
                      Authorization: `Bearer ${token}` },
           body: JSON.stringify(cambiosProducto),
         });
+        if (r.ok && onProductoActualizado) {
+          const prodActualizado = await r.json();
+          onProductoActualizado(prodActualizado);
+        }
       }
 
       if (Object.keys(cambiosPrecios).length > 0 && relevamientoId) {
@@ -235,8 +353,8 @@ export default function FilaProducto({
       mostrarToast("✓ Guardado", "ok");
       setTimeout(() => setExpandido(false), 700);
 
-    } catch (e) {
-      mostrarToast(e.message ?? "Error al guardar", "error");
+    } catch (err) {
+      mostrarToast(err.message ?? "Error al guardar", "error");
     } finally {
       setLoading(false);
     }
@@ -258,8 +376,8 @@ export default function FilaProducto({
       const data = await resp.json();
       setImgSrc(data.imagen_url);
       mostrarToast("✓ Imagen actualizada", "ok");
-    } catch (e) {
-      mostrarToast(e.message, "error");
+    } catch (err) {
+      mostrarToast(err.message, "error");
     } finally {
       setImgLoading(false);
     }
@@ -267,7 +385,7 @@ export default function FilaProducto({
 
   function mostrarToast(msg, tipo) {
     setToast({ msg, tipo });
-    setTimeout(() => setToast(null), 2000);
+    setTimeout(() => setToast(null), 2500);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -306,7 +424,7 @@ export default function FilaProducto({
           }
         </div>
 
-        {/* Badge fuente + nombre */}
+        {/* Badge fuente + nombre + grupo */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center",
             gap: "6px", marginBottom: "3px", flexWrap: "wrap" }}>
@@ -318,13 +436,20 @@ export default function FilaProducto({
             }}>
               {fc.icon} {fc.label}
             </span>
+            {/* Badge de líder adicional si es_lider aunque fuente no sea LIDER */}
+            {esLider && fuente !== "LIDER" && (
+              <span style={{
+                fontSize: "9.5px", fontWeight: 700,
+                color: C.white, background: C.gold,
+                padding: "1px 6px", borderRadius: "20px",
+                flexShrink: 0,
+              }}>⭐ líder</span>
+            )}
             {tienePrecio && !isDirty && (
-              <span style={{ fontSize: "9.5px", color: C.green,
-                fontWeight: 600 }}>✓</span>
+              <span style={{ fontSize: "9.5px", color: C.green, fontWeight: 600 }}>✓</span>
             )}
             {isDirty && (
-              <span style={{ fontSize: "9.5px", color: C.amber,
-                fontWeight: 600 }}>● pendiente</span>
+              <span style={{ fontSize: "9.5px", color: C.amber, fontWeight: 600 }}>● pendiente</span>
             )}
           </div>
           <div style={{
@@ -334,33 +459,68 @@ export default function FilaProducto({
           }}>
             {producto.descripcion}
           </div>
-          {producto.marca && (
-            <div style={{ fontSize: "11px", color: C.gray400,
-              marginTop: "1px" }}>
-              {producto.marca}
-              {producto.grameaje_ml ? ` · ${producto.grameaje_ml}g/ml` : ""}
-            </div>
-          )}
+          <div style={{ fontSize: "11px", color: C.gray400, marginTop: "1px" }}>
+            {producto.marca}
+            {producto.grameaje_ml ? ` · ${producto.grameaje_ml}g/ml` : ""}
+            {grupo ? ` · ${grupo}` : ""}
+          </div>
         </div>
 
-        {/* Precios resumen + margen */}
+        {/* Precios resumen + margen + Price Index */}
         <div style={{ display: "flex", flexDirection: "column",
           alignItems: "flex-end", gap: "3px", flexShrink: 0 }}>
+
+          {/* Precio de venta caja */}
           {precioActual?.precio_venta_caja != null && (
             <span style={{ fontSize: "13px", fontWeight: 700, color: C.navy }}>
               Bs {parseFloat(precioActual.precio_venta_caja).toFixed(2)}
             </span>
           )}
+
+          {/* Margen */}
           {margenCajaPct !== null && (
             <span style={{
-              fontSize: "11px", fontWeight: 700,
+              fontSize: "10px", fontWeight: 700,
               color: colorMargen(margenCajaPct),
               background: bgMargen(margenCajaPct),
-              padding: "1px 7px", borderRadius: "20px",
+              padding: "1px 6px", borderRadius: "20px",
             }}>
               {margenCajaPct}%
             </span>
           )}
+
+          {/* Price Index — solo si hay líder del grupo y no es el mismo líder */}
+          {priceIndex !== null && (
+            <span style={{
+              fontSize: "10px", fontWeight: 700,
+              color: colorPriceIndex(priceIndex),
+              background: bgPriceIndex(priceIndex),
+              padding: "1px 6px", borderRadius: "20px",
+            }}>
+              {esLider ? "100% líder" : `PI ${priceIndex}%`}
+            </span>
+          )}
+
+          {/* Botón toggle líder (solo admins) */}
+          {esAdmin && !bloqueado && (
+            <button
+              onClick={handleToggleLider}
+              disabled={loadingLider}
+              title={esLider ? "Desmarcar como líder" : "Marcar como líder"}
+              style={{
+                background: "none", border: "none",
+                cursor: loadingLider ? "wait" : "pointer",
+                fontSize: "14px", padding: "2px",
+                opacity: loadingLider ? 0.5 : 1,
+                lineHeight: 1,
+                WebkitTapHighlightColor: "transparent",
+              }}
+              type="button"
+            >
+              {esLider ? "⭐" : "☆"}
+            </button>
+          )}
+
           {!bloqueado && (
             <span style={{
               fontSize: "14px", color: C.gray400,
@@ -379,6 +539,16 @@ export default function FilaProducto({
           borderTop: `1px solid ${C.gray100}`,
           display: "flex", flexDirection: "column", gap: "12px",
         }}>
+
+          {/* Grupo (solo admins pueden editarlo) */}
+          {esAdmin && (
+            <InputTexto
+              label="Grupo de comparación"
+              value={grupo}
+              onChange={e => { setGrupo(e.target.value); setIsDirty(true); }}
+              placeholder="Ej: Galletas Six Pack"
+            />
+          )}
 
           {/* Grameaje */}
           <InputPrecio
@@ -455,6 +625,30 @@ export default function FilaProducto({
             )}
           </div>
 
+          {/* Price Index expandido — con contexto del grupo */}
+          {priceIndex !== null && !esLider && (
+            <div style={{
+              padding: "9px 12px",
+              borderRadius: "8px",
+              background: bgPriceIndex(priceIndex),
+              display: "flex", alignItems: "center",
+              justifyContent: "space-between",
+            }}>
+              <div>
+                <div style={{ fontSize: "10px", fontWeight: 600,
+                  color: C.gray600, textTransform: "uppercase",
+                  letterSpacing: "0.4px" }}>Price Index</div>
+                <div style={{ fontSize: "11px", color: C.gray400, marginTop: "1px" }}>
+                  respecto al líder del grupo
+                </div>
+              </div>
+              <span style={{ fontSize: "18px", fontWeight: 700,
+                color: colorPriceIndex(priceIndex) }}>
+                {priceIndex}%
+              </span>
+            </div>
+          )}
+
           {/* Imagen */}
           <button
             onClick={() => fileRef.current?.click()}
@@ -469,7 +663,7 @@ export default function FilaProducto({
             }}
             type="button"
           >
-            {imgLoading ? <Spinner /> : "📷"}
+            {imgLoading ? <Spinner size={14} /> : "📷"}
             <span>{imgLoading ? "Subiendo…"
               : imgSrc ? "Cambiar imagen" : "Agregar imagen"}</span>
           </button>

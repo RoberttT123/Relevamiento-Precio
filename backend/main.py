@@ -28,7 +28,8 @@ app = FastAPI(
 # Ej: "https://relevamiento-precios.onrender.com"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://relevamiento-precio-1frontend.onrender.com"],
+    allow_origins=["https://relevamiento-precio-1frontend.onrender.com"
+      "http://localhost:5190"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -456,10 +456,10 @@ function ProductoCard({ row }) {
           </div>
         </div>
         <span style={S.chip(
-          row.fuente === "PROESA" ? C.white : C.red,
-          row.fuente === "PROESA" ? C.navy : C.redLight,
+          row.fuente === "LIDER" ? C.white : C.red,
+          row.fuente === "LIDER" ? C.navy : C.redLight,
         )}>
-          {row.fuente === "PROESA" ? "✦ PROESA" : "⚡ Comp."}
+          {row.fuente === "LIDER" ? "⭐ LÍDER" : "⚡ Comp."}
         </span>
       </div>
 
@@ -681,8 +681,8 @@ export default function PanelControl({ empleado }) {
           onChange={e => setFuenteSel(e.target.value)}
           style={S.select(!!fuenteSel)}
         >
-          <option value="">PROESA + Competencia + Seguidor</option>
-          <option value="PROESA">✦ Solo PROESA</option>
+          <option value="">LÍDER + Competencia + Seguidor</option>
+          <option value="LIDER">⭐ Solo Líder</option>
           <option value="COMPETENCIA">⚡ Solo Competencia</option>
           <option value="SEGUIDOR">◎ Solo Seguidor</option>
         </select>
@@ -696,8 +696,8 @@ export default function PanelControl({ empleado }) {
           sub={`${resumen?.productos_sin_precio ?? "—"} sin precio`}
         />
         <CardResumen
-          icon="✦"
-          label="PROESA"
+          icon="⭐"
+          label="Líder"
           valor={resumen?.total_proesa}
           colorValor={C.navy}
         />
@@ -871,10 +871,10 @@ export default function PanelControl({ empleado }) {
                           <td style={S.td(i)}>{row.categoria}</td>
                           <td style={S.td(i)}>
                             <span style={S.chip(
-                              row.fuente === "PROESA" ? C.white : C.red,
-                              row.fuente === "PROESA" ? C.navy : C.redLight,
+                              row.fuente === "LIDER" ? C.white : C.red,
+                              row.fuente === "LIDER" ? C.navy : C.redLight,
                             )}>
-                              {row.fuente === "PROESA" ? "✦ PROESA" : "⚡ Comp."}
+                              {row.fuente === "LIDER" ? "⭐ LÍDER" : "⚡ Comp."}
                             </span>
                           </td>
                           <td style={S.td(i)}>{row.marca}</td>

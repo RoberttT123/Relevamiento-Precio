@@ -3,7 +3,7 @@
  * Productos.jsx — Vista agrupada por categoría
  * ---------------------------------------------
  * Muestra acordeones por categoría. Dentro de cada uno,
- * los productos ordenados PROESA → COMPETENCIA → SEGUIDOR,
+ * los productos ordenados LIDER → COMPETENCIA → SEGUIDOR,
  * todos con sus precios visibles a la vez para comparar.
  *
  * Props:
@@ -35,7 +35,7 @@ const C = {
 const API = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 
 // ─── Orden de fuentes para mostrar dentro de cada categoría ──────────────────
-const ORDEN_FUENTE = { PROESA: 0, COMPETENCIA: 1, SEGUIDOR: 2 };
+const ORDEN_FUENTE = { LIDER: 0, COMPETENCIA: 1, SEGUIDOR: 2 };
 
 // ─── Rubros para los tabs ─────────────────────────────────────────────────────
 const RUBROS = [
@@ -219,24 +219,36 @@ function Skeleton() {
 
 // ─── Acordeón de una categoría ────────────────────────────────────────────────
 function CategoriaAcordeon({
-  categoria, productos, precios, relevamiento, empleado, onGuardado,
+  categoria, productos, precios, relevamiento, empleado, onGuardado, onProductoActualizado,
 }) {
-  // Por defecto expandido si algún producto tiene cambios pendientes o no tiene precio
   const sinPrecio = productos.filter(p => !precios[p.id]).length;
   const [expandido, setExpandido] = useState(sinPrecio > 0 && productos.length <= 6);
 
-  const cargados = productos.filter(p => !!precios[p.id]).length;
-  const total    = productos.length;
+  const cargados   = productos.filter(p => !!precios[p.id]).length;
+  const total      = productos.length;
   const finalizado = relevamiento?.estado === "finalizado";
 
-  // Ordenar: PROESA → COMPETENCIA → SEGUIDOR
+  // ── Calcular precio de unidad del líder por grupo ─────────────────────────
+  // Para cada grupo dentro de esta categoría, encontramos el producto
+  // marcado como es_lider y usamos su precio_venta_unidad como referencia.
+  // Si hay productos sin grupo o sin líder, precioLider[grupo] queda undefined.
+  const precioLiderPorGrupo = {};
+  productos.forEach(prod => {
+    if (prod.es_lider && prod.grupo) {
+      const precio = precios[prod.id];
+      if (precio?.precio_venta_unidad) {
+        precioLiderPorGrupo[prod.grupo] = parseFloat(precio.precio_venta_unidad);
+      }
+    }
+  });
+
+  // Ordenar: LIDER → COMPETENCIA → SEGUIDOR
   const ordenados = [...productos].sort(
     (a, b) => (ORDEN_FUENTE[a.fuente] ?? 9) - (ORDEN_FUENTE[b.fuente] ?? 9)
   );
 
   return (
     <div style={S.categoriaWrap}>
-      {/* Header del acordeón */}
       <div
         style={S.categoriaHeader(expandido)}
         onClick={() => setExpandido(e => !e)}
@@ -251,7 +263,6 @@ function CategoriaAcordeon({
         </div>
       </div>
 
-      {/* Filas de productos */}
       {expandido && (
         <div>
           {ordenados.map((prod, i) => (
@@ -264,6 +275,8 @@ function CategoriaAcordeon({
               esUltima={i === ordenados.length - 1}
               bloqueado={finalizado}
               onGuardado={onGuardado}
+              onProductoActualizado={onProductoActualizado}
+              precioLider={prod.grupo ? precioLiderPorGrupo[prod.grupo] ?? null : null}
             />
           ))}
         </div>
@@ -393,6 +406,13 @@ export default function Productos({ empleado }) {
     }));
   }
 
+  // ── Callback producto actualizado (grupo, es_lider, etc.) ─────────────────
+  function handleProductoActualizado(prodActualizado) {
+    setProductos(prev => prev.map(p =>
+      p.id === prodActualizado.id ? { ...p, ...prodActualizado } : p
+    ));
+  }
+
   // ── Efectos ───────────────────────────────────────────────────────────────
   useEffect(() => { cargarProductos();    }, [cargarProductos]);
   useEffect(() => { cargarRelevamiento(); }, [cargarRelevamiento]);
@@ -437,7 +457,7 @@ export default function Productos({ empleado }) {
         </div>
 
         <div style={S.toggleFuente}>
-          {["Todos","PROESA","COMPETENCIA","SEGUIDOR"].map(f => (
+          {["Todos","LIDER","COMPETENCIA","SEGUIDOR"].map(f => (
             <button
               key={f}
               style={S.toggleBtn(fuenteFiltro === f)}
@@ -445,7 +465,7 @@ export default function Productos({ empleado }) {
               type="button"
             >
               {f === "Todos"       ? "Todos"
-             : f === "PROESA"      ? "✦"
+             : f === "LIDER"       ? "⭐"
              : f === "COMPETENCIA" ? "⚡"
              :                       "◎"}
             </button>
@@ -550,6 +570,7 @@ export default function Productos({ empleado }) {
           relevamiento={relevamiento}
           empleado={empleado}
           onGuardado={handlePrecioGuardado}
+          onProductoActualizado={handleProductoActualizado}
         />
       ))}
 
