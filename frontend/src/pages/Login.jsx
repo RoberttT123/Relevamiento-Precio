@@ -531,7 +531,7 @@ export default function Login({ onLoginSuccess }) {
                     onKeyDown={handleNombreKey}
                     onFocus={() => setFocusNombre(true)}
                     onBlur={() => setFocusNombre(false)}
-                    placeholder="Ej: Esteban Quito"
+                    placeholder="Ej: Aquiles Castro"
                     autoComplete="name"
                     style={S.input(focusNombre)}
                   />
