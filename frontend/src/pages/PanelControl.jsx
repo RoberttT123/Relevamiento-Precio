@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
-import GraficoMargen from "../components/GraficoMargen";
+import GraficoEvolucion from "../components/GraficoEvolucion";
 
 // ─── Tokens PROESA ────────────────────────────────────────────────────────────
 const C = {
@@ -514,21 +514,23 @@ export default function PanelControl({ empleado }) {
   const token    = localStorage.getItem("token") ?? "";
   const periodos = ultimosPeriodos();
 
-  const [periodoSel, setPeriodoSel] = useState(periodoActual());
-  const [rubroSel,   setRubroSel]   = useState("");
-  const [fuenteSel,  setFuenteSel]  = useState("");
+  const [periodoSel,   setPeriodoSel]   = useState(periodoActual());
+  const [rubroSel,     setRubroSel]     = useState("");
+  const [fuenteSel,    setFuenteSel]    = useState("");
   const [categoriaSel, setCategoriaSel] = useState("");
 
-  const [periodoA,   setPeriodoA]   = useState(periodoAnterior());
-  const [periodoB,   setPeriodoB]   = useState(periodoActual());
-  const [hoverComp,  setHoverComp]  = useState(false);
+  // ── Estado del gráfico de evolución ──────────────────────────────────────
+  const [categoriaGrafico, setCategoriaGrafico] = useState("");
+  const [tipoPrecio,       setTipoPrecio]       = useState("caja");     // "caja" | "unidad"
+  const [tipoGrafico,      setTipoGrafico]      = useState("lineas");   // "lineas" | "barras"
+  const [evolucion,        setEvolucion]        = useState([]);
+  const [loadEvol,         setLoadEvol]         = useState(false);
+  const [errorEvol,        setErrorEvol]        = useState(null);
 
-  const [resumen,      setResumen]      = useState(null);
-  const [panelData,    setPanelData]    = useState([]);
-  const [comparativa,  setComparativa]  = useState([]);
-  const [loadRes,      setLoadRes]      = useState(true);
-  const [loadPanel,    setLoadPanel]    = useState(true);
-  const [loadComp,     setLoadComp]     = useState(false);
+  const [resumen,   setResumen]   = useState(null);
+  const [panelData, setPanelData] = useState([]);
+  const [loadRes,   setLoadRes]   = useState(true);
+  const [loadPanel, setLoadPanel] = useState(true);
 
   const cargarResumen = useCallback(async () => {
     setLoadRes(true);
@@ -566,29 +568,46 @@ export default function PanelControl({ empleado }) {
     }
   }, [periodoSel, rubroSel, fuenteSel, token]);
 
-  async function cargarComparativa() {
-    if (periodoA === periodoB) return;
-    setLoadComp(true);
+  // ── Cargar evolución de precios por categoría ─────────────────────────────
+  async function cargarEvolucion() {
+    if (!categoriaGrafico.trim()) return;
+    setLoadEvol(true);
+    setErrorEvol(null);
     try {
       const params = new URLSearchParams({
-        periodo_a: periodoA,
-        periodo_b: periodoB,
+        categoria: categoriaGrafico,
+        meses: "12",
       });
-      if (rubroSel)  params.set("rubro",  rubroSel);
       if (fuenteSel) params.set("fuente", fuenteSel);
+      if (rubroSel)  params.set("rubro",  rubroSel);
 
       const resp = await fetch(
-        `${API}/api/historial/comparativa?${params}`,
+        `${API}/api/historial/evolucion?${params}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (resp.ok) setComparativa(await resp.json());
-      else setComparativa([]);
+      if (resp.ok) {
+        setEvolucion(await resp.json());
+      } else {
+        const err = await resp.json();
+        setErrorEvol(err.detail ?? "Sin datos para esa categoría.");
+        setEvolucion([]);
+      }
     } catch (_) {
-      setComparativa([]);
+      setErrorEvol("Error de conexión al cargar el gráfico.");
+      setEvolucion([]);
     } finally {
-      setLoadComp(false);
+      setLoadEvol(false);
     }
   }
+
+  // ── Cuando cambia categoriaSel (filtro del panel), pre-llenar el gráfico ──
+  // Si el usuario selecciona una categoría en el filtro de tabla,
+  // la misma categoría se propone para el gráfico.
+  useEffect(() => {
+    if (categoriaSel && categoriaSel !== categoriaGrafico) {
+      setCategoriaGrafico(categoriaSel);
+    }
+  }, [categoriaSel]);
 
   useEffect(() => { cargarResumen(); }, [cargarResumen]);
   useEffect(() => { cargarPanel();   }, [cargarPanel]);
@@ -698,7 +717,7 @@ export default function PanelControl({ empleado }) {
         <CardResumen
           icon="⭐"
           label="Líder"
-          valor={resumen?.total_proesa}
+          valor={resumen?.total_lider}
           colorValor={C.navy}
         />
         <CardResumen
@@ -730,58 +749,129 @@ export default function PanelControl({ empleado }) {
         />
       </div>
 
+      {/* ── Gráfico de evolución de precios por categoría ────────────── */}
       <div style={S.seccion}>
         <div style={S.seccionHeader}>
           <div style={S.seccionTitulo}>
-            📈 Comparativa de precios
+            📈 Evolución de precios por mes
           </div>
-          <div style={S.comparativaSelects}>
+
+          {/* Controles del gráfico */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", width: "100%" }}>
+
+            {/* Selector de categoría */}
             <select
-              value={periodoA}
-              onChange={e => setPeriodoA(e.target.value)}
-              style={{ ...S.select(true), flex: "1 1 auto" }}
+              value={categoriaGrafico}
+              onChange={e => setCategoriaGrafico(e.target.value)}
+              style={{ ...S.select(!!categoriaGrafico), flex: "1 1 140px" }}
             >
-              {periodos.map(p => (
-                <option key={p} value={p}>{periodoLabel(p)}</option>
+              <option value="">Elegí una categoría…</option>
+              {categoriasDisponibles.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
-            <span style={S.vsLabel}>vs</span>
-            <select
-              value={periodoB}
-              onChange={e => setPeriodoB(e.target.value)}
-              style={{ ...S.select(true), flex: "1 1 auto" }}
-            >
-              {periodos.map(p => (
-                <option key={p} value={p}>{periodoLabel(p)}</option>
+
+            {/* Toggle tipo de precio */}
+            <div style={{
+              display: "flex", background: C.gray100,
+              borderRadius: "8px", padding: "3px", gap: "2px", flexShrink: 0,
+            }}>
+              {[
+                { val: "caja",   label: "Caja"   },
+                { val: "unidad", label: "Unidad" },
+              ].map(({ val, label }) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setTipoPrecio(val)}
+                  style={{
+                    padding: "4px 12px", borderRadius: "6px", border: "none",
+                    fontSize: "11.5px", fontWeight: tipoPrecio === val ? 600 : 400,
+                    color: tipoPrecio === val ? C.navy : C.gray400,
+                    background: tipoPrecio === val ? C.white : "transparent",
+                    cursor: "pointer",
+                    boxShadow: tipoPrecio === val ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                    transition: "all 0.15s",
+                    WebkitTapHighlightColor: "transparent",
+                  }}
+                >
+                  {label}
+                </button>
               ))}
-            </select>
+            </div>
+
+            {/* Toggle tipo de gráfico */}
+            <div style={{
+              display: "flex", background: C.gray100,
+              borderRadius: "8px", padding: "3px", gap: "2px", flexShrink: 0,
+            }}>
+              {[
+                { val: "lineas", label: "〜 Líneas" },
+                { val: "barras", label: "▌ Barras"  },
+              ].map(({ val, label }) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setTipoGrafico(val)}
+                  style={{
+                    padding: "4px 12px", borderRadius: "6px", border: "none",
+                    fontSize: "11.5px", fontWeight: tipoGrafico === val ? 600 : 400,
+                    color: tipoGrafico === val ? C.navy : C.gray400,
+                    background: tipoGrafico === val ? C.white : "transparent",
+                    cursor: "pointer",
+                    boxShadow: tipoGrafico === val ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                    transition: "all 0.15s",
+                    WebkitTapHighlightColor: "transparent",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Botón graficar */}
             <button
-              style={S.btnComparar(hoverComp)}
-              onClick={cargarComparativa}
-              onMouseEnter={() => setHoverComp(true)}
-              onMouseLeave={() => setHoverComp(false)}
+              onClick={cargarEvolucion}
+              disabled={!categoriaGrafico || loadEvol}
               type="button"
+              style={{
+                height: "36px", padding: "0 16px",
+                background: !categoriaGrafico ? C.gray100 : C.red,
+                color: !categoriaGrafico ? C.gray400 : C.white,
+                border: "none", borderRadius: "7px",
+                fontSize: "13px", fontWeight: 600,
+                cursor: !categoriaGrafico || loadEvol ? "not-allowed" : "pointer",
+                transition: "background 0.15s",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
             >
-              Comparar
+              {loadEvol ? "Cargando…" : "Graficar"}
             </button>
           </div>
         </div>
 
-        {loadComp ? (
+        {/* Contenido del gráfico */}
+        {loadEvol ? (
           <div style={S.estadoCenter}>
-            <span>⏳ Cargando comparativa…</span>
+            <span>⏳ Cargando datos…</span>
           </div>
-        ) : comparativa.length > 0 ? (
-          <GraficoMargen
-            data={comparativa}
-            periodoA={periodoA}
-            periodoB={periodoB}
+        ) : errorEvol ? (
+          <div style={S.estadoCenter}>
+            <span style={{ fontSize: "26px" }}>📊</span>
+            <span style={{ fontSize: "13px", color: C.gray400 }}>{errorEvol}</span>
+          </div>
+        ) : evolucion.length > 0 ? (
+          <GraficoEvolucion
+            data={evolucion}
+            tipoPrecio={tipoPrecio}
+            tipoGrafico={tipoGrafico}
           />
         ) : (
           <div style={S.estadoCenter}>
-            <span style={{ fontSize: "28px" }}>📊</span>
+            <span style={{ fontSize: "28px" }}>📈</span>
             <span style={{ fontSize: "13px", color: C.gray400 }}>
-              Seleccioná dos períodos y presioná Comparar.
+              Elegí una categoría y presioná Graficar para ver la evolución de precios.
             </span>
           </div>
         )}

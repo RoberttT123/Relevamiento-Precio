@@ -5,11 +5,8 @@ historial.py — Rutas de historial y panel de control
 GET  /api/historial                  → historial de cambios con filtros
 GET  /api/historial/panel            → vista consolidada para el panel de control
 GET  /api/historial/comparativa      → comparativa de precios entre dos períodos
+GET  /api/historial/evolucion        → evolución de precio venta por mes (para gráfico de líneas)
 GET  /api/historial/resumen/:periodo → resumen estadístico de un período
-
-Todas las rutas leen desde:
-  - vista_panel_control  (VIEW ya creada en schema.sql)
-  - historial_cambios    (tabla con log automático del trigger)
 """
 
 from __future__ import annotations
@@ -38,16 +35,16 @@ router = APIRouter(prefix="/api/historial", tags=["historial"])
 
 # ─── Modelos Pydantic ────────────────────────────────────────────────────────
 class CambioOut(BaseModel):
-    id:                 str
-    precio_id:          str
+    id:                   str
+    precio_id:            str
     descripcion_producto: str | None = None
-    marca_producto:     str | None = None
-    campo_modificado:   str
-    valor_anterior:     str | None
-    valor_nuevo:        str | None
-    modificado_por:     str
-    nombre_empleado:    str | None = None
-    fecha_modificacion: str
+    marca_producto:       str | None = None
+    campo_modificado:     str
+    valor_anterior:       str | None
+    valor_nuevo:          str | None
+    modificado_por:       str
+    nombre_empleado:      str | None = None
+    fecha_modificacion:   str
 
 
 class PanelRow(BaseModel):
@@ -78,49 +75,55 @@ class PanelRow(BaseModel):
 
 
 class ComparativaRow(BaseModel):
-    rubro:                   str
-    categoria:               str
-    fuente:                  str
-    marca:                   str
-    descripcion:             str
-    grameaje_ml:             float | None
-    # Período A
-    precio_venta_caja_a:     float | None
-    margen_caja_pct_a:       float | None
-    # Período B
-    precio_venta_caja_b:     float | None
-    margen_caja_pct_b:       float | None
-    # Delta
-    delta_precio_caja:       float | None
-    delta_margen_pct:        float | None
+    rubro:               str
+    categoria:           str
+    fuente:              str
+    marca:               str
+    descripcion:         str
+    grameaje_ml:         float | None
+    precio_venta_caja_a:  float | None
+    margen_caja_pct_a:    float | None
+    precio_venta_caja_b:  float | None
+    margen_caja_pct_b:    float | None
+    delta_precio_caja:    float | None
+    delta_margen_pct:     float | None
+
+
+class EvolPunto(BaseModel):
+    """Un punto en la serie temporal: período + precio de ese mes."""
+    periodo:             str          # "YYYY-MM"
+    precio_venta_caja:   float | None
+    precio_venta_unidad: float | None
+
+
+class EvolProducto(BaseModel):
+    """Serie completa de un producto a lo largo de N meses."""
+    descripcion: str
+    marca:       str
+    fuente:      str
+    puntos:      list[EvolPunto]
 
 
 class ResumenPeriodo(BaseModel):
-    periodo:                 str
-    total_productos:         int
-    total_proesa:            int
-    total_competencia:       int
+    periodo:                  str
+    total_productos:          int
+    total_lider:              int   # antes total_proesa
+    total_competencia:        int
     promedio_margen_caja_pct: float | None
-    productos_sin_precio:    int
+    productos_sin_precio:     int
     relevamientos_finalizados: int
-    relevamientos_borrador:  int
+    relevamientos_borrador:   int
 
 
 # ─── GET /api/historial ───────────────────────────────────────────────────────
 @router.get("", response_model=list[CambioOut])
 def listar_historial(
-    periodo:    str | None = Query(None, description="Filtrar por período YYYY-MM"),
-    producto_id: str | None = Query(None, description="Filtrar por UUID de producto"),
-    empleado_id: str | None = Query(None, description="Filtrar por UUID de empleado"),
-    limite:     int         = Query(100, ge=1, le=500),
+    periodo:     str | None = Query(None),
+    producto_id: str | None = Query(None),
+    empleado_id: str | None = Query(None),
+    limite:      int        = Query(100, ge=1, le=500),
     empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
 ):
-    """
-    Log de cambios de precios registrados por el trigger automático.
-    Los admins pueden filtrar por cualquier empleado.
-    Los relevadores solo ven sus propios cambios.
-    """
-    # Si no es admin, forzar filtro por su propio id
     if empleado.rol != "admin":
         empleado_id = empleado.id
 
@@ -143,18 +146,17 @@ def listar_historial(
         query = query.eq("modificado_por", empleado_id)
 
     data = query.execute().data or []
-
     result = []
+
     for row in data:
         emp  = row.pop("empleados", None)
         pr   = row.pop("precios_relevamiento", None)
         prod = pr.get("productos") if pr else None
 
-        row["nombre_empleado"]      = emp["nombre"]          if emp  else None
-        row["descripcion_producto"] = prod["descripcion"]    if prod else None
-        row["marca_producto"]       = prod["marca"]          if prod else None
+        row["nombre_empleado"]      = emp["nombre"]       if emp  else None
+        row["descripcion_producto"] = prod["descripcion"] if prod else None
+        row["marca_producto"]       = prod["marca"]       if prod else None
 
-        # Filtro por período: comparamos con el relevamiento del precio
         if periodo and pr:
             rel_resp = (
                 supabase.table("relevamientos")
@@ -185,17 +187,12 @@ def listar_historial(
 # ─── GET /api/historial/panel ────────────────────────────────────────────────
 @router.get("/panel", response_model=list[PanelRow])
 def panel_control(
-    periodo:   str | None = Query(None, description="Filtrar por período YYYY-MM"),
+    periodo:   str | None = Query(None),
     rubro:     str | None = Query(None),
     categoria: str | None = Query(None),
-    fuente:    Literal["PROESA", "COMPETENCIA"] | None = Query(None),
+    fuente:    Literal["LIDER", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
     empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
 ):
-    """
-    Consulta la vista vista_panel_control ya creada en schema.sql.
-    Devuelve precios + márgenes consolidados listos para tablas y gráficos.
-    Solo admins ven todos los relevamientos; relevadores solo los propios.
-    """
     query = supabase.table("vista_panel_control").select("*")
 
     if periodo:
@@ -209,26 +206,19 @@ def panel_control(
     if empleado.rol != "admin":
         query = query.eq("relevado_por", empleado.nombre)
 
-    data = query.execute().data or []
-    return data
+    return query.execute().data or []
 
 
 # ─── GET /api/historial/comparativa ──────────────────────────────────────────
 @router.get("/comparativa", response_model=list[ComparativaRow])
 def comparativa_periodos(
-    periodo_a: str = Query(..., description="Período base YYYY-MM. Ej: 2026-05"),
-    periodo_b: str = Query(..., description="Período a comparar YYYY-MM. Ej: 2026-06"),
+    periodo_a: str = Query(...),
+    periodo_b: str = Query(...),
     rubro:     str | None = Query(None),
-    fuente:    Literal["PROESA", "COMPETENCIA"] | None = Query(None),
+    fuente:    Literal["LIDER", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
     _empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
 ):
-    """
-    Compara precios y márgenes de dos períodos.
-    Útil para el gráfico de evolución del panel de control.
-    Solo devuelve productos que tienen precio en AMBOS períodos.
-    """
     def _traer_periodo(periodo: str) -> dict:
-        """Devuelve { 'descripcion|marca': row } para un período."""
         q = supabase.table("vista_panel_control").select("*").eq("periodo", periodo)
         if rubro:
             q = q.ilike("rubro", f"%{rubro}%")
@@ -239,51 +229,150 @@ def comparativa_periodos(
 
     data_a = _traer_periodo(periodo_a)
     data_b = _traer_periodo(periodo_b)
+    claves = set(data_a.keys()) & set(data_b.keys())
 
-    # Solo productos presentes en ambos períodos
-    claves_comunes = set(data_a.keys()) & set(data_b.keys())
-
-    if not claves_comunes:
+    if not claves:
         raise HTTPException(
             status_code=404,
             detail=f"No hay productos en común entre {periodo_a} y {periodo_b}.",
         )
 
     result = []
-    for clave in sorted(claves_comunes):
-        a = data_a[clave]
-        b = data_b[clave]
-
+    for clave in sorted(claves):
+        a, b = data_a[clave], data_b[clave]
         pv_a = a.get("precio_venta_caja")
         pv_b = b.get("precio_venta_caja")
         mg_a = a.get("margen_caja_pct")
         mg_b = b.get("margen_caja_pct")
 
-        delta_precio = (
-            round(pv_b - pv_a, 2)
-            if pv_a is not None and pv_b is not None else None
+        result.append(ComparativaRow(
+            rubro               = a["rubro"],
+            categoria           = a["categoria"],
+            fuente              = a["fuente"],
+            marca               = a["marca"],
+            descripcion         = a["descripcion"],
+            grameaje_ml         = a.get("grameaje_ml"),
+            precio_venta_caja_a  = pv_a,
+            margen_caja_pct_a    = mg_a,
+            precio_venta_caja_b  = pv_b,
+            margen_caja_pct_b    = mg_b,
+            delta_precio_caja    = round(pv_b - pv_a, 2) if pv_a and pv_b else None,
+            delta_margen_pct     = round(mg_b - mg_a, 4) if mg_a and mg_b else None,
+        ))
+
+    return result
+
+
+# ─── GET /api/historial/evolucion ────────────────────────────────────────────
+@router.get("/evolucion", response_model=list[EvolProducto])
+def evolucion_precios(
+    categoria: str = Query(..., description="Nombre exacto de la categoría a graficar"),
+    meses:     int = Query(12, ge=2, le=24, description="Cuántos meses hacia atrás mostrar"),
+    rubro:     str | None = Query(None),
+    fuente:    Literal["LIDER", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
+    _empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
+):
+    """
+    Devuelve la evolución mensual de precio de venta (caja y unidad)
+    de todos los productos de una categoría, a lo largo de N meses.
+
+    Ejemplo de respuesta:
+    [
+      {
+        "descripcion": "BABYSEC x48",
+        "marca": "BABYSEC",
+        "fuente": "LIDER",
+        "puntos": [
+          { "periodo": "2025-07", "precio_venta_caja": 21.0, "precio_venta_unidad": 0.44 },
+          { "periodo": "2025-08", "precio_venta_caja": 21.0, "precio_venta_unidad": 0.44 },
+          ...
+        ]
+      },
+      ...
+    ]
+
+    La estrategia:
+    1. Calcular los últimos N períodos YYYY-MM.
+    2. Para cada período, buscar en vista_panel_control los productos
+       de la categoría pedida.
+    3. Agrupar por producto (descripcion|marca) y armar la serie temporal.
+    4. Si un producto no tiene precio en un mes, ese punto queda null
+       (el frontend lo grafica como gap o lo omite según el tipo de gráfico).
+    """
+    from datetime import date
+
+    # ── Generar la lista de períodos (últimos N meses) ────────────────────────
+    hoy = date.today()
+    periodos = []
+    anio, mes = hoy.year, hoy.month
+    for _ in range(meses):
+        periodos.append(f"{anio}-{mes:02d}")
+        mes -= 1
+        if mes == 0:
+            mes = 12
+            anio -= 1
+    periodos.reverse()  # orden cronológico ascendente
+
+    # ── Traer datos de todos los períodos en una sola consulta ────────────────
+    query = (
+        supabase.table("vista_panel_control")
+        .select(
+            "periodo, descripcion, marca, fuente, "
+            "precio_venta_caja, precio_venta_unidad"
         )
-        delta_margen = (
-            round(mg_b - mg_a, 4)
-            if mg_a is not None and mg_b is not None else None
+        .in_("periodo", periodos)
+        .ilike("categoria", f"%{categoria}%")
+    )
+    if rubro:
+        query = query.ilike("rubro", f"%{rubro}%")
+    if fuente:
+        query = query.eq("fuente", fuente)
+
+    filas = query.execute().data or []
+
+    if not filas:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay datos para la categoría '{categoria}'.",
         )
 
-        result.append(
-            ComparativaRow(
-                rubro                 = a["rubro"],
-                categoria             = a["categoria"],
-                fuente                = a["fuente"],
-                marca                 = a["marca"],
-                descripcion           = a["descripcion"],
-                grameaje_ml           = a.get("grameaje_ml"),
-                precio_venta_caja_a   = pv_a,
-                margen_caja_pct_a     = mg_a,
-                precio_venta_caja_b   = pv_b,
-                margen_caja_pct_b     = mg_b,
-                delta_precio_caja     = delta_precio,
-                delta_margen_pct      = delta_margen,
+    # ── Agrupar por producto ──────────────────────────────────────────────────
+    productos: dict[str, dict] = {}  # clave = "descripcion|marca"
+
+    for fila in filas:
+        clave = f"{fila['descripcion']}|{fila['marca']}"
+        if clave not in productos:
+            productos[clave] = {
+                "descripcion": fila["descripcion"],
+                "marca":       fila["marca"],
+                "fuente":      fila["fuente"],
+                "por_periodo": {},
+            }
+        productos[clave]["por_periodo"][fila["periodo"]] = {
+            "precio_venta_caja":   fila.get("precio_venta_caja"),
+            "precio_venta_unidad": fila.get("precio_venta_unidad"),
+        }
+
+    # ── Armar series temporales completas (null si no hay dato ese mes) ───────
+    result = []
+    for prod in sorted(productos.values(), key=lambda p: p["descripcion"]):
+        puntos = [
+            EvolPunto(
+                periodo             = p,
+                precio_venta_caja   = prod["por_periodo"].get(p, {}).get("precio_venta_caja"),
+                precio_venta_unidad = prod["por_periodo"].get(p, {}).get("precio_venta_unidad"),
             )
-        )
+            for p in periodos
+        ]
+        # Solo incluir el producto si tiene al menos un punto con dato real
+        if any(pt.precio_venta_caja is not None or pt.precio_venta_unidad is not None
+               for pt in puntos):
+            result.append(EvolProducto(
+                descripcion = prod["descripcion"],
+                marca       = prod["marca"],
+                fuente      = prod["fuente"],
+                puntos      = puntos,
+            ))
 
     return result
 
@@ -294,15 +383,6 @@ def resumen_periodo(
     periodo: str,
     _empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
 ):
-    """
-    Devuelve un resumen estadístico del período para las cards
-    del panel de control:
-      - Total de productos relevados
-      - Cuántos son PROESA vs COMPETENCIA
-      - Promedio de margen caja %
-      - Relevamientos finalizados vs borrador
-    """
-    # ── Datos de la vista ─────────────────────────────────────────────────────
     filas = (
         supabase.table("vista_panel_control")
         .select("fuente, margen_caja_pct, estado_relevamiento")
@@ -311,7 +391,6 @@ def resumen_periodo(
         .data or []
     )
 
-    # ── Relevamientos del período ─────────────────────────────────────────────
     relevamientos = (
         supabase.table("relevamientos")
         .select("estado")
@@ -320,8 +399,6 @@ def resumen_periodo(
         .data or []
     )
 
-    # ── Productos sin precio cargado en este período ──────────────────────────
-    # Todos los productos activos menos los que tienen precio en el período
     total_activos = (
         supabase.table("productos")
         .select("id", count="exact")
@@ -329,26 +406,20 @@ def resumen_periodo(
         .execute()
         .count or 0
     )
-    con_precio = len(filas)
-    sin_precio = max(0, total_activos - con_precio)
 
-    # ── Cálculos ──────────────────────────────────────────────────────────────
     margenes = [
         float(f["margen_caja_pct"])
         for f in filas
         if f.get("margen_caja_pct") is not None
     ]
-    promedio_margen = (
-        round(sum(margenes) / len(margenes), 4) if margenes else None
-    )
 
     return ResumenPeriodo(
         periodo                   = periodo,
-        total_productos           = con_precio,
-        total_proesa              = sum(1 for f in filas if f["fuente"] == "PROESA"),
+        total_productos           = len(filas),
+        total_lider               = sum(1 for f in filas if f["fuente"] == "LIDER"),
         total_competencia         = sum(1 for f in filas if f["fuente"] == "COMPETENCIA"),
-        promedio_margen_caja_pct  = promedio_margen,
-        productos_sin_precio      = sin_precio,
+        promedio_margen_caja_pct  = round(sum(margenes) / len(margenes), 4) if margenes else None,
+        productos_sin_precio      = max(0, total_activos - len(filas)),
         relevamientos_finalizados = sum(1 for r in relevamientos if r["estado"] == "finalizado"),
         relevamientos_borrador    = sum(1 for r in relevamientos if r["estado"] == "borrador"),
     )
