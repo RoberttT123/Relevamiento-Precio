@@ -14,7 +14,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import GraficoEvolucion from "../components/GraficoEvolucion";
-import * as XLSX from "xlsx";
+
 // ─── Tokens PROESA ────────────────────────────────────────────────────────────
 const C = {
   navy:       "#1A1A2E",
@@ -638,57 +638,20 @@ export default function PanelControl({ empleado }) {
     return panelData.filter(r => (r.categoria || "Sin categoría") === categoriaSel);
   }, [panelData, categoriaSel]);
 
-const categoriasOrdenadas = useMemo(
+  const porCategoria = useMemo(() => {
+    const acc = {};
+    panelDataFiltrado.forEach(row => {
+      const cat = row.categoria || "Sin categoría";
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(row);
+    });
+    return acc;
+  }, [panelDataFiltrado]);
+
+  const categoriasOrdenadas = useMemo(
     () => Object.keys(porCategoria).sort(),
     [porCategoria]
   );
-
-  // ── Exportar a XLSX ────────────────────────────────────────────────────────
-  function exportarXLSX(filas, periodo) {
-    const HEADERS = [
-      "Rubro", "Categoría", "Fuente", "Marca", "Producto",
-      "Gr/ML", "P.Compra Caja", "P.Venta Caja", "Margen Caja %",
-      "P.Compra Ud.", "P.Venta Ud.", "Margen Ud. %", "Última edición",
-    ];
-
-    const rows = filas.map(r => ({
-      "Rubro":          r.rubro,
-      "Categoría":      r.categoria,
-      "Fuente":         r.fuente,
-      "Marca":          r.marca,
-      "Producto":       r.descripcion,
-      "Gr/ML":          r.grameaje_ml ?? "",
-      "P.Compra Caja":  r.precio_compra_caja ?? "",
-      "P.Venta Caja":   r.precio_venta_caja ?? "",
-      "Margen Caja %":  r.margen_caja_pct != null
-                          ? parseFloat(r.margen_caja_pct.toFixed(1)) : "",
-      "P.Compra Ud.":   r.precio_compra_unidad ?? "",
-      "P.Venta Ud.":    r.precio_venta_unidad ?? "",
-      "Margen Ud. %":   r.margen_unidad_pct != null
-                          ? parseFloat(r.margen_unidad_pct.toFixed(1)) : "",
-      "Última edición": r.ultima_edicion
-                          ? new Date(r.ultima_edicion).toLocaleDateString("es-BO")
-                          : "",
-    }));
-
-    const hoja  = XLSX.utils.json_to_sheet(rows, { header: HEADERS });
-    const libro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(libro, hoja, `Relevamiento ${periodo}`);
-
-    const colWidths = HEADERS.map(h => {
-      const maxContent = Math.max(
-        h.length,
-        ...rows.map(r => String(r[h] ?? "").length)
-      );
-      return { wch: Math.min(maxContent + 2, 40) };
-    });
-    hoja["!cols"] = colWidths;
-
-    XLSX.writeFile(libro, `relevamiento_${periodo}.xlsx`);
-  }
-
-  return (
-    <div style={S.page}>
 
   return (
     <div style={S.page}>
@@ -914,32 +877,15 @@ const categoriasOrdenadas = useMemo(
         )}
       </div>
 
+      <div style={{ ...S.seccion, margin: "1rem 1rem 1.5rem" }}>
         <div style={S.seccionHeader}>
-            <div style={S.seccionTitulo}>
-                📋 Detalle — {periodoLabel(periodoSel)}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ fontSize: "12px", color: C.gray400 }}>
-                {loadPanel ? "…" : `${panelDataFiltrado.length} registros`}
-                </span>
-                {!loadPanel && panelDataFiltrado.length > 0 && (
-                <button
-                    onClick={() => exportarXLSX(panelDataFiltrado, periodoSel)}
-                    type="button"
-                    style={{
-                    display: "flex", alignItems: "center", gap: "5px",
-                    background: C.green, color: C.white,
-                    border: "none", borderRadius: "7px",
-                    padding: "5px 12px", fontSize: "12px", fontWeight: 600,
-                    cursor: "pointer", whiteSpace: "nowrap",
-                    WebkitTapHighlightColor: "transparent",
-                    }}
-                >
-                    ↓ Excel
-                </button>
-                )}
-            </div>
-            </div>
+          <div style={S.seccionTitulo}>
+            📋 Detalle — {periodoLabel(periodoSel)}
+          </div>
+          <span style={{ fontSize: "12px", color: C.gray400 }}>
+            {loadPanel ? "…" : `${panelDataFiltrado.length} registros`}
+          </span>
+        </div>
 
         {loadPanel ? (
           <div style={{ padding: "16px" }}>
