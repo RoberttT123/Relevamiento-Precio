@@ -14,7 +14,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import GraficoEvolucion from "../components/GraficoEvolucion";
-
+import * as XLSX from "xlsx";
 // ─── Tokens PROESA ────────────────────────────────────────────────────────────
 const C = {
   navy:       "#1A1A2E",
