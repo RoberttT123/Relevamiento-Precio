@@ -221,6 +221,7 @@ export default function FilaProducto({
     precio_compra_unidad: precioActual?.precio_compra_unidad ?? "",
     precio_venta_unidad:  precioActual?.precio_venta_unidad  ?? "",
     grameaje_ml:          producto?.grameaje_ml              ?? "",
+    unidades_caja:        producto?.unidades_caja            ?? "",
   });
   const [dirtyFields, setDirtyFields] = useState({});
   const [isDirty,     setIsDirty]     = useState(false);
@@ -302,6 +303,9 @@ export default function FilaProducto({
 
     if (dirtyFields.grameaje_ml && valores.grameaje_ml !== "")
       cambiosProducto.grameaje_ml = parseFloat(valores.grameaje_ml);
+
+    if (dirtyFields.unidades_caja && valores.unidades_caja !== "")
+      cambiosProducto.unidades_caja = parseFloat(valores.unidades_caja);
 
     // Guardar grupo si cambió
     const grupoActual = producto?.grupo ?? "";
@@ -462,6 +466,7 @@ export default function FilaProducto({
           <div style={{ fontSize: "11px", color: C.gray400, marginTop: "1px" }}>
             {producto.marca}
             {producto.grameaje_ml ? ` · ${producto.grameaje_ml}g/ml` : ""}
+            {producto.unidades_caja ? ` · ${producto.unidades_caja}ud/cja` : ""}
             {grupo ? ` · ${grupo}` : ""}
           </div>
         </div>
@@ -550,14 +555,30 @@ export default function FilaProducto({
             />
           )}
 
-          {/* Grameaje */}
-          <InputPrecio
-            label="Grameaje / ML"
-            campo="grameaje_ml"
-            valores={valores}
-            onChange={handleChange}
-            dirtyFields={dirtyFields}
-          />
+          {/* Grameaje / ML  —  Unidades por caja */}
+          <div>
+            <div style={{ fontSize: "10px", fontWeight: 600,
+              color: C.gray600, letterSpacing: "0.4px",
+              textTransform: "uppercase", marginBottom: "6px" }}>
+              Presentación
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <InputPrecio
+                label="Grameaje / ML"
+                campo="grameaje_ml"
+                valores={valores}
+                onChange={handleChange}
+                dirtyFields={dirtyFields}
+              />
+              <InputPrecio
+                label="Unidades x caja"
+                campo="unidades_caja"
+                valores={valores}
+                onChange={handleChange}
+                dirtyFields={dirtyFields}
+              />
+            </div>
+          </div>
 
           {/* Precios caja */}
           <div>
@@ -568,10 +589,10 @@ export default function FilaProducto({
             </div>
             <div style={{ display: "grid",
               gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <InputPrecio label="Compra" campo="precio_compra_caja"
+              <InputPrecio label="Venta (Bs.)" campo="precio_venta_caja"
                 valores={valores} onChange={handleChange}
                 dirtyFields={dirtyFields} />
-              <InputPrecio label="Venta" campo="precio_venta_caja"
+              <InputPrecio label="Compra (Bs.)" campo="precio_compra_caja"
                 valores={valores} onChange={handleChange}
                 dirtyFields={dirtyFields} />
             </div>
@@ -601,10 +622,10 @@ export default function FilaProducto({
             </div>
             <div style={{ display: "grid",
               gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <InputPrecio label="Compra" campo="precio_compra_unidad"
+              <InputPrecio label="Venta (Bs.)" campo="precio_venta_unidad"
                 valores={valores} onChange={handleChange}
                 dirtyFields={dirtyFields} />
-              <InputPrecio label="Venta" campo="precio_venta_unidad"
+              <InputPrecio label="Compra (Bs.)" campo="precio_compra_unidad"
                 valores={valores} onChange={handleChange}
                 dirtyFields={dirtyFields} />
             </div>
