@@ -408,9 +408,18 @@ export default function Productos({ empleado }) {
 
   // ── Callback producto actualizado (grupo, es_lider, etc.) ─────────────────
   function handleProductoActualizado(prodActualizado) {
-    setProductos(prev => prev.map(p =>
-      p.id === prodActualizado.id ? { ...p, ...prodActualizado } : p
-    ));
+    if (!prodActualizado?.id) return; // guarda: ignorar si viene incompleto
+    setProductos(prev => prev.map(p => {
+      if (p.id !== prodActualizado.id) return p;
+      // Merge defensivo: solo sobreescribir campos que vienen definidos
+      const merged = { ...p };
+      Object.keys(prodActualizado).forEach(key => {
+        if (prodActualizado[key] !== null && prodActualizado[key] !== undefined) {
+          merged[key] = prodActualizado[key];
+        }
+      });
+      return merged;
+    }));
   }
 
   // ── Efectos ───────────────────────────────────────────────────────────────
