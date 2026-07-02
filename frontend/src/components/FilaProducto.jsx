@@ -209,7 +209,7 @@ export default function FilaProducto({
   const fuente      = producto?.fuente ?? "LIDER";
   const fc          = FUENTE_CONFIG[fuente] ?? FUENTE_CONFIG.LIDER;
   const tienePrecio = !!precioActual?.id;
-  const esAdmin = empleado?.rol?.toLowerCase() === "admin";
+  const esAdmin     = empleado?.rol?.toLowerCase() === "admin";
 
   // Debug temporal — borrar después de confirmar que funciona
   if (process.env.NODE_ENV === "development") {
@@ -398,6 +398,9 @@ export default function FilaProducto({
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Guarda defensiva: si producto es undefined después de un update, no romper
+  if (!producto?.descripcion) return null;
+
   return (
     <div style={{
       borderBottom: esUltima ? "none" : `1px solid ${C.gray100}`,
