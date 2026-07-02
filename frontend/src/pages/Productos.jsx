@@ -1,578 +1,780 @@
 // -*- coding: utf-8 -*-
 /**
- * Productos.jsx — Vista agrupada por categoría
- * ---------------------------------------------
- * Muestra acordeones por categoría. Dentro de cada uno,
- * los productos ordenados LIDER → COMPETENCIA → SEGUIDOR,
- * todos con sus precios visibles a la vez para comparar.
+ * FilaProducto.jsx — Fila editable dentro del acordeón de categoría
+ * ------------------------------------------------------------------
+ * Muestra: badge fuente · nombre · precios compra/venta · margen · price index
+ * Al tocar la fila se expande para editar los campos.
  *
  * Props:
- *   empleado  { id, nombre, rol, codigo_empleado }
+ *   producto        { id, descripcion, marca, fuente, grameaje_ml,
+ *                     imagen_url, categoria_nombre, grupo, es_lider }
+ *   precioActual    { id, precio_compra_caja, precio_venta_caja,
+ *                     precio_compra_unidad, precio_venta_unidad,
+ *                     margen_caja_pct, margen_unidad_pct } | null
+ *   relevamientoId  string
+ *   empleado        { id, nombre, rol }
+ *   esUltima        boolean
+ *   bloqueado       boolean (relevamiento finalizado)
+ *   onGuardado      (precioActualizado) => void
+ *   onProductoActualizado (productoActualizado) => void  — para reflejar cambios de líder/grupo
+ *   precioLider     number | null — precio_venta_unidad del líder del mismo grupo
  */
 
-import { useState, useEffect, useCallback } from "react";
-import FilaProducto from "../components/FilaProducto";
+import { useState, useRef } from "react";
 
-// ─── Tokens PROESA ────────────────────────────────────────────────────────────
 const C = {
-  navy:      "#1A1A2E",
-  red:       "#E63946",
-  redLight:  "rgba(230,57,70,0.10)",
-  green:     "#2A9D5C",
-  greenLight:"rgba(42,157,92,0.10)",
-  amber:     "#E9A825",
-  white:     "#FFFFFF",
-  gray50:    "#F8F9FF",
-  gray100:   "#F0F0F0",
-  gray200:   "#E6E6E6",
-  gray400:   "#AAAAAA",
-  gray600:   "#666666",
-  border:    "#E6E6E6",
+  navy:       "#1A1A2E",
+  red:        "#E63946",
+  redLight:   "rgba(230,57,70,0.10)",
+  green:      "#2A9D5C",
+  greenLight: "rgba(42,157,92,0.10)",
+  amber:      "#E9A825",
+  amberLight: "rgba(233,168,37,0.10)",
+  gold:       "#F5A623",
+  white:      "#FFFFFF",
+  gray50:     "#F8F9FF",
+  gray100:    "#F0F0F0",
+  gray200:    "#E6E6E6",
+  gray400:    "#AAAAAA",
+  gray600:    "#666666",
 };
 
 // ─── Base de API, sin barra final ────────────────────────────────────────────
-// Evita el bug de "//api/..." si VITE_API_URL quedó con "/" al final en el .env.
-const API = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+const API   = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+const TOUCH = 44;
 
-// ─── Orden de fuentes para mostrar dentro de cada categoría ──────────────────
-const ORDEN_FUENTE = { LIDER: 0, COMPETENCIA: 1, SEGUIDOR: 2 };
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function colorMargen(pct) {
+  if (pct == null) return C.gray400;
+  if (pct >= 20)   return C.green;
+  if (pct >= 10)   return C.amber;
+  return C.red;
+}
+function bgMargen(pct) {
+  if (pct == null) return C.gray100;
+  if (pct >= 20)   return C.greenLight;
+  if (pct >= 10)   return C.amberLight;
+  return C.redLight;
+}
 
-// ─── Rubros para los tabs ─────────────────────────────────────────────────────
-const RUBROS = [
-  { id: "Todos",              icon: "📦" },
-  { id: "Alimentos",          icon: "🍫" },
-  { id: "Bebidas y Tabacos",  icon: "🥃" },
-  { id: "Higiene y Limpieza", icon: "🧴" },
-];
+// Price Index: precio_unidad_lider / precio_unidad_competidor × 100
+// Si el competidor es más caro que el líder → pasa el 100%
+function calcPriceIndex(precioUnidadProducto, precioUnidadLider) {
+  if (!precioUnidadProducto || !precioUnidadLider) return null;
+  const p = parseFloat(precioUnidadProducto);
+  const l = parseFloat(precioUnidadLider);
+  if (isNaN(p) || isNaN(l) || p === 0) return null;
+  return Math.round((l / p) * 10000) / 100;
+}
 
-// ─── Estilos ──────────────────────────────────────────────────────────────────
-const S = {
-  page: {
-    minHeight: "100vh",
-    background: C.gray50,
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    paddingBottom: "2rem",
-  },
+function colorPriceIndex(pi) {
+  if (pi == null) return C.gray400;
+  if (pi <= 100)  return C.green;   // igual o más barato que el líder
+  if (pi <= 130)  return C.amber;   // hasta 30% más caro
+  return C.red;                     // más de 30% más caro que el líder
+}
+function bgPriceIndex(pi) {
+  if (pi == null) return C.gray100;
+  if (pi <= 100)  return C.greenLight;
+  if (pi <= 130)  return C.amberLight;
+  return C.redLight;
+}
 
-  // ── Barra de filtros ──────────────────────────────────────────────────────
-  filterBar: {
-    background: C.white,
-    borderBottom: `1px solid ${C.border}`,
-    padding: "10px 1rem",
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "8px",
-    alignItems: "center",
-    position: "sticky",
-    top: 0,
-    zIndex: 50,
-  },
-  searchWrap: {
-    position: "relative",
-    flex: "1 1 160px",
-    minWidth: "140px",
-  },
-  searchIcon: {
-    position: "absolute", left: "10px", top: "50%",
-    transform: "translateY(-50%)",
-    fontSize: "14px", color: C.gray400, pointerEvents: "none",
-  },
-  searchInput: (focused) => ({
-    width: "100%", height: "38px",
-    padding: "0 10px 0 32px",
-    border: `1px solid ${focused ? C.red : C.border}`,
-    borderRadius: "8px", fontSize: "14px", color: C.navy,
-    background: focused ? C.white : C.gray50,
-    outline: "none",
-    boxShadow: focused ? `0 0 0 3px ${C.redLight}` : "none",
-    transition: "all 0.15s", boxSizing: "border-box",
-    fontFamily: "inherit",
-  }),
-  toggleFuente: {
-    display: "flex", background: C.gray100,
-    borderRadius: "8px", padding: "3px", gap: "2px",
-  },
-  toggleBtn: (activo) => ({
-    padding: "4px 10px", borderRadius: "6px", border: "none",
-    fontSize: "11.5px", fontWeight: activo ? 600 : 400,
-    color: activo ? C.navy : C.gray400,
-    background: activo ? C.white : "transparent",
-    cursor: "pointer", transition: "all 0.15s",
-    boxShadow: activo ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-    whiteSpace: "nowrap",
-    WebkitTapHighlightColor: "transparent",
-  }),
-  contador: {
-    marginLeft: "auto", fontSize: "12px",
-    color: C.gray400, whiteSpace: "nowrap",
-  },
-
-  // ── Tabs de rubro ─────────────────────────────────────────────────────────
-  rubroTabs: {
-    background: C.white,
-    borderBottom: `1px solid ${C.border}`,
-    padding: "0 1rem",
-    display: "flex", gap: "0", overflowX: "auto",
-  },
-  rubroTab: (activo) => ({
-    padding: "10px 14px", fontSize: "13px",
-    fontWeight: activo ? 600 : 400,
-    color: activo ? C.navy : C.gray400,
-    borderBottom: activo ? `3px solid ${C.red}` : "3px solid transparent",
-    borderTop: "none", borderLeft: "none", borderRight: "none",
-    background: "none", cursor: "pointer", whiteSpace: "nowrap",
-    transition: "color 0.15s, border-bottom-color 0.15s",
-    outline: "none", WebkitTapHighlightColor: "transparent",
-  }),
-
-  // ── Banner ────────────────────────────────────────────────────────────────
-  banner: (estado) => ({
-    margin: "10px 1rem 0",
-    padding: "10px 14px", borderRadius: "10px",
-    background: estado === "finalizado" ? C.gray100 : C.redLight,
-    border: `1px solid ${estado === "finalizado" ? C.border : C.red}`,
-    display: "flex", alignItems: "center",
-    justifyContent: "space-between", flexWrap: "wrap", gap: "8px",
-  }),
-  bannerText: {
-    fontSize: "13px", color: C.navy, fontWeight: 500,
-    display: "flex", alignItems: "center", gap: "8px",
-  },
-  bannerBtn: (hover, color) => ({
-    padding: "5px 14px",
-    background: hover ? (color === "red" ? "#CC2F3B" : "#555") : (color === "red" ? C.red : "#444"),
-    color: C.white, border: "none", borderRadius: "6px",
-    fontSize: "12px", fontWeight: 600, cursor: "pointer",
-    transition: "background 0.15s",
-    WebkitTapHighlightColor: "transparent",
-  }),
-
-  // ── Acordeón de categoría ─────────────────────────────────────────────────
-  categoriaWrap: {
-    margin: "10px 1rem 0",
-    background: C.white,
-    borderRadius: "12px",
-    border: `1px solid ${C.border}`,
-    overflow: "hidden",
-  },
-  categoriaHeader: (expandido) => ({
-    display: "flex", alignItems: "center", gap: "10px",
-    padding: "13px 14px", cursor: "pointer",
-    background: expandido ? C.gray50 : C.white,
-    borderBottom: expandido ? `1px solid ${C.border}` : "none",
-    WebkitTapHighlightColor: "transparent",
-    minHeight: "52px",
-  }),
-  categoriaIcon: {
-    fontSize: "18px", flexShrink: 0,
-  },
-  categoriaNombre: {
-    fontSize: "14px", fontWeight: 700, color: C.navy, flex: 1,
-  },
-  categoriaStats: {
-    display: "flex", alignItems: "center", gap: "8px",
-  },
-  chipCargados: (n, total) => ({
-    fontSize: "11px", fontWeight: 600,
-    color: n === total ? C.green : C.amber,
-    background: n === total ? C.greenLight : "rgba(233,168,37,0.12)",
-    padding: "2px 9px", borderRadius: "20px",
-    whiteSpace: "nowrap",
-  }),
-  flecha: (expandido) => ({
-    fontSize: "16px", color: C.gray400,
-    transform: expandido ? "rotate(180deg)" : "rotate(0deg)",
-    transition: "transform 0.2s", lineHeight: 1, flexShrink: 0,
-  }),
-
-  // ── Skeleton ──────────────────────────────────────────────────────────────
-  skeletonWrap: {
-    margin: "10px 1rem 0", borderRadius: "12px",
-    border: `1px solid ${C.border}`, overflow: "hidden",
-    background: C.white,
-  },
-  skeletonHeader: {
-    height: "52px",
-    background: "linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%)",
-    backgroundSize: "200% 100%",
-    animation: "shimmer 1.4s infinite",
-  },
-
-  // ── Estado vacío ──────────────────────────────────────────────────────────
-  empty: {
-    display: "flex", flexDirection: "column",
-    alignItems: "center", justifyContent: "center",
-    padding: "4rem 1rem", gap: "10px",
-    color: C.gray400, textAlign: "center",
-  },
+// ─── Configuración de badges por fuente ──────────────────────────────────────
+const FUENTE_CONFIG = {
+  LIDER:       { bg: C.navy,  fg: C.white, icon: "⭐", label: "LÍDER"  },
+  COMPETENCIA: { bg: C.red,   fg: C.white, icon: "⚡", label: "COMP."  },
+  SEGUIDOR:    { bg: C.amber, fg: C.navy,  icon: "◎", label: "SEG."   },
 };
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
-function Skeleton() {
+function Spinner({ size = 16 }) {
   return (
-    <div style={S.skeletonWrap}>
-      <style>{`@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`}</style>
-      <div style={S.skeletonHeader} />
+    <svg width={size} height={size} viewBox="0 0 16 16"
+      style={{ animation: "spin 0.7s linear infinite", flexShrink: 0 }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <circle cx="8" cy="8" r="6" fill="none"
+        stroke="rgba(255,255,255,0.3)" strokeWidth="2"/>
+      <path d="M8 2A6 6 0 0 1 14 8" fill="none"
+        stroke="white" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+// ─── Input de precio inline ───────────────────────────────────────────────────
+function InputPrecio({ label, campo, valores, onChange, dirtyFields, disabled }) {
+  const [focused, setFocused] = useState(false);
+  const dirty = !!dirtyFields[campo];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+      <span style={{ fontSize: "10px", fontWeight: 600, color: C.gray600,
+        letterSpacing: "0.4px", textTransform: "uppercase" }}>
+        {label}
+      </span>
+      <div style={{ position: "relative" }}>
+        <span style={{
+          position: "absolute", left: "8px", top: "50%",
+          transform: "translateY(-50%)",
+          fontSize: "11px", color: focused ? C.red : C.gray400,
+          fontWeight: 500, pointerEvents: "none",
+        }}>Bs</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          pattern="[0-9]*"
+          min="0"
+          step="0.01"
+          placeholder="0.00"
+          disabled={disabled}
+          value={valores[campo] ?? ""}
+          onChange={e => onChange(campo, e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={{
+            width: "100%",
+            height: `${TOUCH}px`,
+            padding: "0 8px 0 26px",
+            border: `1.5px solid ${focused ? C.red : dirty ? C.amber : C.gray200}`,
+            borderRadius: "8px",
+            fontSize: "15px",
+            color: C.navy,
+            background: disabled ? C.gray100 : focused ? C.white : C.gray50,
+            outline: "none",
+            boxShadow: focused ? `0 0 0 3px ${C.redLight}` : "none",
+            transition: "border-color 0.15s",
+            boxSizing: "border-box",
+            fontFamily: "inherit",
+            WebkitAppearance: "none",
+            opacity: disabled ? 0.5 : 1,
+          }}
+        />
+        {dirty && !focused && !disabled && (
+          <span style={{
+            position: "absolute", right: "7px", top: "50%",
+            transform: "translateY(-50%)",
+            fontSize: "10px", color: C.amber, fontWeight: 700,
+          }}>●</span>
+        )}
+      </div>
     </div>
   );
 }
 
-// ─── Acordeón de una categoría ────────────────────────────────────────────────
-function CategoriaAcordeon({
-  categoria, productos, precios, relevamiento, empleado, onGuardado, onProductoActualizado,
-}) {
-  const sinPrecio = productos.filter(p => !precios[p.id]).length;
-  const [expandido, setExpandido] = useState(sinPrecio > 0 && productos.length <= 6);
-
-  const cargados   = productos.filter(p => !!precios[p.id]).length;
-  const total      = productos.length;
-  const finalizado = relevamiento?.estado === "finalizado";
-
-  // ── Calcular precio de unidad del líder por grupo ─────────────────────────
-  // Para cada grupo dentro de esta categoría, encontramos el producto
-  // marcado como es_lider y usamos su precio_venta_unidad como referencia.
-  // Si hay productos sin grupo o sin líder, precioLider[grupo] queda undefined.
-  const precioLiderPorGrupo = {};
-  productos.forEach(prod => {
-    if (prod.es_lider && prod.grupo) {
-      const precio = precios[prod.id];
-      if (precio?.precio_venta_unidad) {
-        precioLiderPorGrupo[prod.grupo] = parseFloat(precio.precio_venta_unidad);
-      }
-    }
-  });
-
-  // Ordenar: LIDER → COMPETENCIA → SEGUIDOR
-  const ordenados = [...productos].sort(
-    (a, b) => (ORDEN_FUENTE[a.fuente] ?? 9) - (ORDEN_FUENTE[b.fuente] ?? 9)
-  );
-
+// ─── Input de texto inline (para el campo grupo) ──────────────────────────────
+function InputTexto({ label, value, onChange, placeholder, disabled }) {
+  const [focused, setFocused] = useState(false);
   return (
-    <div style={S.categoriaWrap}>
-      <div
-        style={S.categoriaHeader(expandido)}
-        onClick={() => setExpandido(e => !e)}
-      >
-        <div style={S.categoriaIcon}>🏷️</div>
-        <div style={S.categoriaNombre}>{categoria}</div>
-        <div style={S.categoriaStats}>
-          <span style={S.chipCargados(cargados, total)}>
-            {cargados}/{total}
-          </span>
-          <span style={S.flecha(expandido)}>⌄</span>
-        </div>
-      </div>
-
-      {expandido && (
-        <div>
-          {ordenados.map((prod, i) => (
-            <FilaProducto
-              key={prod.id}
-              producto={prod}
-              precioActual={precios[prod.id] ?? null}
-              relevamientoId={relevamiento?.id ?? null}
-              empleado={empleado}
-              esUltima={i === ordenados.length - 1}
-              bloqueado={finalizado}
-              onGuardado={onGuardado}
-              onProductoActualizado={onProductoActualizado}
-              precioLider={prod.grupo ? precioLiderPorGrupo[prod.grupo] ?? null : null}
-            />
-          ))}
-        </div>
-      )}
+    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+      <span style={{ fontSize: "10px", fontWeight: 600, color: C.gray600,
+        letterSpacing: "0.4px", textTransform: "uppercase" }}>
+        {label}
+      </span>
+      <input
+        type="text"
+        value={value}
+        onChange={onChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder={placeholder}
+        disabled={disabled}
+        style={{
+          width: "100%",
+          height: `${TOUCH}px`,
+          padding: "0 12px",
+          border: `1.5px solid ${focused ? C.red : C.gray200}`,
+          borderRadius: "8px",
+          fontSize: "14px",
+          color: C.navy,
+          background: disabled ? C.gray100 : focused ? C.white : C.gray50,
+          outline: "none",
+          boxShadow: focused ? `0 0 0 3px ${C.redLight}` : "none",
+          transition: "border-color 0.15s",
+          boxSizing: "border-box",
+          fontFamily: "inherit",
+          WebkitAppearance: "none",
+          opacity: disabled ? 0.5 : 1,
+        }}
+      />
     </div>
   );
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
-export default function Productos({ empleado }) {
-  const token = localStorage.getItem("token") ?? "";
+export default function FilaProducto({
+  producto, precioActual, relevamientoId, empleado,
+  esUltima, bloqueado, onGuardado, onProductoActualizado,
+  precioLider,
+}) {
+  const token       = localStorage.getItem("token") ?? "";
+  const fuente      = producto?.fuente ?? "LIDER";
+  const fc          = FUENTE_CONFIG[fuente] ?? FUENTE_CONFIG.LIDER;
+  const tienePrecio = !!precioActual?.id;
+  const esAdmin = empleado?.rol?.toLowerCase() === "admin";
 
-  // ── Filtros ───────────────────────────────────────────────────────────────
-  const [busqueda,     setBusqueda]     = useState("");
-  const [rubroActivo,  setRubroActivo]  = useState("Todos");
-  const [fuenteFiltro, setFuenteFiltro] = useState("Todos");
-  const [focusBusq,    setFocusBusq]    = useState(false);
-  const [hoverFinal,   setHoverFinal]   = useState(false);
-  const [hoverReabrir, setHoverReabrir] = useState(false);
+  // Debug temporal — borrar después de confirmar que funciona
+  if (process.env.NODE_ENV === "development") {
+    console.log("[FilaProducto] rol empleado:", empleado?.rol, "| esAdmin:", esAdmin);
+  }
 
-  // ── Datos ─────────────────────────────────────────────────────────────────
-  const [productos,    setProductos]    = useState([]);
-  const [precios,      setPrecios]      = useState({});
-  const [relevamiento, setRelevamiento] = useState(null);
-  const [loadingProds, setLoadingProds] = useState(true);
-  const [loadingRelev, setLoadingRelev] = useState(true);
-  const [error,        setError]        = useState(null);
+  const [expandido,    setExpandido]    = useState(false);
+  const [esLider,      setEsLider]      = useState(producto?.es_lider ?? false);
+  const [grupo,        setGrupo]        = useState(producto?.grupo ?? "");
+  const [loadingLider, setLoadingLider] = useState(false);
+  const [valores,      setValores]      = useState({
+    precio_compra_caja:   precioActual?.precio_compra_caja   ?? "",
+    precio_venta_caja:    precioActual?.precio_venta_caja    ?? "",
+    precio_compra_unidad: precioActual?.precio_compra_unidad ?? "",
+    precio_venta_unidad:  precioActual?.precio_venta_unidad  ?? "",
+    grameaje_ml:          producto?.grameaje_ml              ?? "",
+    unidades_caja:        producto?.unidades_caja            ?? "",
+  });
+  const [dirtyFields, setDirtyFields] = useState({});
+  const [isDirty,     setIsDirty]     = useState(false);
+  const [loading,     setLoading]     = useState(false);
+  const [toast,       setToast]       = useState(null);
+  const [imgSrc,      setImgSrc]      = useState(producto?.imagen_url ?? null);
+  const [imgLoading,  setImgLoading]  = useState(false);
+  const fileRef = useRef(null);
 
-  // ── Cargar productos ──────────────────────────────────────────────────────
-  const cargarProductos = useCallback(async () => {
-    setLoadingProds(true);
-    setError(null);
+  // ── Márgenes calculados en tiempo real ───────────────────────────────────
+  const margenCajaPct = (() => {
+    const c = parseFloat(valores.precio_compra_caja);
+    const v = parseFloat(valores.precio_venta_caja);
+    if (!isNaN(c) && !isNaN(v) && v !== 0)
+      return Math.round(((v - c) / v) * 10000) / 100;
+    return precioActual?.margen_caja_pct ?? null;
+  })();
+
+  const margenUnidadPct = (() => {
+    const c = parseFloat(valores.precio_compra_unidad);
+    const v = parseFloat(valores.precio_venta_unidad);
+    if (!isNaN(c) && !isNaN(v) && v !== 0)
+      return Math.round(((v - c) / v) * 10000) / 100;
+    return precioActual?.margen_unidad_pct ?? null;
+  })();
+
+  // ── Price Index calculado en tiempo real ─────────────────────────────────
+  // Usa el precio de unidad del producto actual (editado o guardado)
+  // y el precio de unidad del líder del grupo que viene de Productos.jsx
+  const precioUnidadActual = parseFloat(valores.precio_venta_unidad) ||
+    parseFloat(precioActual?.precio_venta_unidad) || null;
+  const priceIndex = esLider ? 100 : calcPriceIndex(precioUnidadActual, precioLider);
+
+  function handleChange(campo, valor) {
+    setValores(v => ({ ...v, [campo]: valor }));
+    setDirtyFields(d => ({ ...d, [campo]: true }));
+    setIsDirty(true);
+  }
+
+  // ── Toggle líder ─────────────────────────────────────────────────────────
+  async function handleToggleLider(e) {
+    e.stopPropagation(); // no colapsar/expandir la fila al tocar el botón
+    if (!esAdmin || loadingLider) return;
+
+    if (!grupo.trim()) {
+      mostrarToast("Asigná un grupo primero", "error");
+      setExpandido(true);
+      return;
+    }
+
+    setLoadingLider(true);
     try {
-      const params = new URLSearchParams();
-      if (rubroActivo !== "Todos")    params.set("rubro", rubroActivo);
-      if (fuenteFiltro !== "Todos")   params.set("fuente", fuenteFiltro);
-      if (busqueda.trim())            params.set("busqueda", busqueda.trim());
-
-      const resp = await fetch(`${API}/api/productos?${params}`, {
+      const resp = await fetch(`${API}/api/productos/${producto.id}/lider`, {
+        method: "PUT",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!resp.ok) throw new Error("Error al cargar productos.");
-      setProductos(await resp.json());
-    } catch (e) {
-      setError(e.message);
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail ?? "Error al cambiar líder.");
+      }
+      const prodActualizado = await resp.json();
+      setEsLider(prodActualizado.es_lider);
+      if (onProductoActualizado) onProductoActualizado(prodActualizado);
+      mostrarToast(prodActualizado.es_lider ? "⭐ Marcado como líder" : "Desmarcado como líder", "ok");
+    } catch (err) {
+      mostrarToast(err.message ?? "Error", "error");
     } finally {
-      setLoadingProds(false);
+      setLoadingLider(false);
     }
-  }, [rubroActivo, fuenteFiltro, busqueda, token]);
+  }
 
-  // ── Cargar o crear relevamiento del mes ───────────────────────────────────
-  const cargarRelevamiento = useCallback(async () => {
-    setLoadingRelev(true);
+  // ── Guardar precios y grupo ───────────────────────────────────────────────
+  async function handleGuardar() {
+    if (!isDirty || loading || bloqueado) return;
+    setLoading(true);
+
+    const cambiosProducto = {};
+    const cambiosPrecios  = {};
+
+    if (dirtyFields.grameaje_ml && valores.grameaje_ml !== "")
+      cambiosProducto.grameaje_ml = parseFloat(valores.grameaje_ml);
+
+    if (dirtyFields.unidades_caja && valores.unidades_caja !== "")
+      cambiosProducto.unidades_caja = parseFloat(valores.unidades_caja);
+
+    // Guardar grupo si cambió
+    const grupoActual = producto?.grupo ?? "";
+    if (grupo !== grupoActual)
+      cambiosProducto.grupo = grupo.trim() || null;
+
+    ["precio_compra_caja","precio_venta_caja",
+     "precio_compra_unidad","precio_venta_unidad"].forEach(c => {
+      if (dirtyFields[c] && valores[c] !== "")
+        cambiosPrecios[c] = parseFloat(valores[c]);
+    });
+
     try {
-      const ahora  = new Date();
-      const periodo = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`;
-
-      const resp  = await fetch(
-        `${API}/api/relevamientos?periodo=${periodo}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const lista = await resp.json();
-
-      if (lista.length > 0) {
-        setRelevamiento(lista[0]);
-        cargarPrecios(lista[0].id);
-      } else {
-        const crear = await fetch(`${API}/api/relevamientos`, {
-          method: "POST",
+      if (Object.keys(cambiosProducto).length > 0) {
+        const r = await fetch(`${API}/api/productos/${producto.id}`, {
+          method: "PUT",
           headers: { "Content-Type": "application/json",
                      Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ periodo }),
+          body: JSON.stringify(cambiosProducto),
         });
-        if (crear.ok) setRelevamiento(await crear.json());
+        if (r.ok && onProductoActualizado) {
+          const prodActualizado = await r.json();
+          onProductoActualizado(prodActualizado);
+        }
       }
-    } catch (_) {
+
+      if (Object.keys(cambiosPrecios).length > 0 && relevamientoId) {
+        const url  = tienePrecio
+          ? `${API}/api/relevamientos/${relevamientoId}/precios/${precioActual.id}`
+          : `${API}/api/relevamientos/${relevamientoId}/precios`;
+        const resp = await fetch(url, {
+          method: tienePrecio ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json",
+                     Authorization: `Bearer ${token}` },
+          body: JSON.stringify(tienePrecio
+            ? cambiosPrecios
+            : { producto_id: producto.id, ...cambiosPrecios }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.detail ?? "Error al guardar.");
+        }
+        const data = await resp.json();
+        if (onGuardado) onGuardado(data);
+      }
+
+      setDirtyFields({});
+      setIsDirty(false);
+      mostrarToast("✓ Guardado", "ok");
+      setTimeout(() => setExpandido(false), 700);
+
+    } catch (err) {
+      mostrarToast(err.message ?? "Error al guardar", "error");
     } finally {
-      setLoadingRelev(false);
+      setLoading(false);
     }
-  }, [token]);
+  }
 
-  // ── Cargar precios ────────────────────────────────────────────────────────
-  async function cargarPrecios(relevamientoId) {
+  async function handleImagen(e) {
+    const archivo = e.target.files?.[0];
+    if (!archivo) return;
+    setImgLoading(true);
+    const formData = new FormData();
+    formData.append("imagen", archivo);
     try {
-      const resp  = await fetch(
-        `${API}/api/relevamientos/${relevamientoId}/precios`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const lista = await resp.json();
-      const mapa  = {};
-      lista.forEach(p => { mapa[p.producto_id] = p; });
-      setPrecios(mapa);
-    } catch (_) {}
+      const resp = await fetch(`${API}/api/productos/${producto.id}/imagen`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!resp.ok) throw new Error("Error al subir imagen.");
+      const data = await resp.json();
+      setImgSrc(data.imagen_url);
+      mostrarToast("✓ Imagen actualizada", "ok");
+    } catch (err) {
+      mostrarToast(err.message, "error");
+    } finally {
+      setImgLoading(false);
+    }
   }
 
-  // ── Finalizar ─────────────────────────────────────────────────────────────
-  async function handleFinalizar() {
-    if (!relevamiento || relevamiento.estado === "finalizado") return;
-    if (!confirm("¿Finalizar el relevamiento? Podrás reabrirlo si necesitás cambios.")) return;
-    try {
-      const resp = await fetch(
-        `${API}/api/relevamientos/${relevamiento.id}/finalizar`,
-        { method: "PUT", headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (resp.ok) setRelevamiento(await resp.json());
-    } catch (_) {}
+  function mostrarToast(msg, tipo) {
+    setToast({ msg, tipo });
+    setTimeout(() => setToast(null), 2500);
   }
-
-  // ── Reabrir ───────────────────────────────────────────────────────────────
-  async function handleReabrir() {
-    if (!relevamiento || relevamiento.estado === "borrador") return;
-    if (!confirm("¿Reabrir el relevamiento para editar?")) return;
-    try {
-      const resp = await fetch(
-        `${API}/api/relevamientos/${relevamiento.id}/reabrir`,
-        { method: "PUT", headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (resp.ok) setRelevamiento(await resp.json());
-    } catch (_) {}
-  }
-
-  // ── Callback precio guardado ──────────────────────────────────────────────
-  function handlePrecioGuardado(precioActualizado) {
-    setPrecios(prev => ({
-      ...prev,
-      [precioActualizado.producto_id]: precioActualizado,
-    }));
-  }
-
-  // ── Callback producto actualizado (grupo, es_lider, etc.) ─────────────────
-  function handleProductoActualizado(prodActualizado) {
-    setProductos(prev => prev.map(p =>
-      p.id === prodActualizado.id ? { ...p, ...prodActualizado } : p
-    ));
-  }
-
-  // ── Efectos ───────────────────────────────────────────────────────────────
-  useEffect(() => { cargarProductos();    }, [cargarProductos]);
-  useEffect(() => { cargarRelevamiento(); }, [cargarRelevamiento]);
-
-  // ── Agrupar productos por categoría ──────────────────────────────────────
-  const porCategoria = productos.reduce((acc, prod) => {
-    const cat = prod.categoria_nombre || "Sin categoría";
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(prod);
-    return acc;
-  }, {});
-
-  const categorias = Object.keys(porCategoria).sort();
-
-  // ── Totales ───────────────────────────────────────────────────────────────
-  const totalProductos = productos.length;
-  const totalCargados  = productos.filter(p => !!precios[p.id]).length;
-  const finalizado     = relevamiento?.estado === "finalizado";
-
-  const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
-                 "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-  const ahora       = new Date();
-  const periodoLabel = `${MESES[ahora.getMonth()]} ${ahora.getFullYear()}`;
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={S.page}>
+    <div style={{
+      borderBottom: esUltima ? "none" : `1px solid ${C.gray100}`,
+      position: "relative",
+    }}>
 
-      {/* ── Barra de filtros ─────────────────────────────────────────── */}
-      <div style={S.filterBar}>
-        <div style={S.searchWrap}>
-          <span style={S.searchIcon}>🔍</span>
-          <input
-            type="text"
-            placeholder="Buscar producto o marca…"
-            value={busqueda}
-            onChange={e => setBusqueda(e.target.value)}
-            onFocus={() => setFocusBusq(true)}
-            onBlur={() => setFocusBusq(false)}
-            style={S.searchInput(focusBusq)}
-          />
+      {/* ── FILA RESUMEN (siempre visible) ───────────────────────────── */}
+      <div
+        onClick={() => !bloqueado && setExpandido(e => !e)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          padding: "10px 14px",
+          cursor: bloqueado ? "default" : "pointer",
+          background: expandido ? C.gray50 : C.white,
+          minHeight: "52px",
+          WebkitTapHighlightColor: "transparent",
+        }}
+      >
+        {/* Thumbnail */}
+        <div style={{
+          width: "40px", height: "40px", flexShrink: 0,
+          borderRadius: "8px", overflow: "hidden",
+          background: C.gray100,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          {imgSrc
+            ? <img src={imgSrc} alt={producto.descripcion}
+                style={{ width: "100%", height: "100%",
+                  objectFit: "contain", padding: "3px" }} />
+            : <span style={{ fontSize: "18px" }}>🖼️</span>
+          }
         </div>
 
-        <div style={S.toggleFuente}>
-          {["Todos","LIDER","COMPETENCIA","SEGUIDOR"].map(f => (
+        {/* Badge fuente + nombre + grupo */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center",
+            gap: "6px", marginBottom: "3px", flexWrap: "wrap" }}>
+            <span style={{
+              fontSize: "9.5px", fontWeight: 700,
+              color: fc.fg, background: fc.bg,
+              padding: "1px 6px", borderRadius: "20px",
+              flexShrink: 0,
+            }}>
+              {fc.icon} {fc.label}
+            </span>
+            {/* Badge de líder adicional si es_lider aunque fuente no sea LIDER */}
+            {esLider && fuente !== "LIDER" && (
+              <span style={{
+                fontSize: "9.5px", fontWeight: 700,
+                color: C.white, background: C.gold,
+                padding: "1px 6px", borderRadius: "20px",
+                flexShrink: 0,
+              }}>⭐ líder</span>
+            )}
+            {tienePrecio && !isDirty && (
+              <span style={{ fontSize: "9.5px", color: C.green, fontWeight: 600 }}>✓</span>
+            )}
+            {isDirty && (
+              <span style={{ fontSize: "9.5px", color: C.amber, fontWeight: 600 }}>● pendiente</span>
+            )}
+          </div>
+          <div style={{
+            fontSize: "13px", fontWeight: 600, color: C.navy,
+            overflow: "hidden", textOverflow: "ellipsis",
+            whiteSpace: "nowrap", lineHeight: 1.2,
+          }}>
+            {producto.descripcion}
+          </div>
+          <div style={{ fontSize: "11px", color: C.gray400, marginTop: "1px" }}>
+            {producto.marca}
+            {producto.grameaje_ml ? ` · ${producto.grameaje_ml}g/ml` : ""}
+            {producto.unidades_caja ? ` · ${producto.unidades_caja}ud/cja` : ""}
+            {grupo ? ` · ${grupo}` : ""}
+          </div>
+        </div>
+
+        {/* Precios resumen + margen + Price Index */}
+        <div style={{ display: "flex", flexDirection: "column",
+          alignItems: "flex-end", gap: "3px", flexShrink: 0 }}>
+
+          {/* Precio de venta caja */}
+          {precioActual?.precio_venta_caja != null && (
+            <span style={{ fontSize: "13px", fontWeight: 700, color: C.navy }}>
+              Bs {parseFloat(precioActual.precio_venta_caja).toFixed(2)}
+            </span>
+          )}
+
+          {/* Margen */}
+          {margenCajaPct !== null && (
+            <span style={{
+              fontSize: "10px", fontWeight: 700,
+              color: colorMargen(margenCajaPct),
+              background: bgMargen(margenCajaPct),
+              padding: "1px 6px", borderRadius: "20px",
+            }}>
+              {margenCajaPct}%
+            </span>
+          )}
+
+          {/* Price Index — solo si hay líder del grupo y no es el mismo líder */}
+          {priceIndex !== null && (
+            <span style={{
+              fontSize: "10px", fontWeight: 700,
+              color: colorPriceIndex(priceIndex),
+              background: bgPriceIndex(priceIndex),
+              padding: "1px 6px", borderRadius: "20px",
+            }}>
+              {esLider ? "100% líder" : `PI ${priceIndex}%`}
+            </span>
+          )}
+
+          {/* Botón toggle líder — solo admins, se ve en la fila resumen */}
+          {esAdmin && !bloqueado && (
             <button
-              key={f}
-              style={S.toggleBtn(fuenteFiltro === f)}
-              onClick={() => setFuenteFiltro(f)}
+              onClick={handleToggleLider}
+              disabled={loadingLider}
+              title={esLider ? "Desmarcar como líder" : "Marcar como líder de este grupo"}
+              style={{
+                background: esLider ? "#FFF8E1" : C.gray50,
+                border: `1.5px solid ${esLider ? C.gold : C.gray200}`,
+                borderRadius: "8px",
+                cursor: loadingLider ? "wait" : "pointer",
+                fontSize: "12px",
+                fontWeight: 600,
+                color: esLider ? C.gold : C.gray400,
+                padding: "3px 10px",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                flexShrink: 0,
+                transition: "all 0.15s",
+                WebkitTapHighlightColor: "transparent",
+              }}
               type="button"
             >
-              {f === "Todos"       ? "Todos"
-             : f === "LIDER"       ? "⭐"
-             : f === "COMPETENCIA" ? "⚡"
-             :                       "◎"}
+              {loadingLider ? "…" : esLider ? "⭐ Líder" : "☆ Marcar líder"}
             </button>
-          ))}
-        </div>
+          )}
 
-        {!loadingProds && (
-          <span style={S.contador}>
-            {totalCargados}/{totalProductos}
-          </span>
-        )}
+          {!bloqueado && (
+            <span style={{
+              fontSize: "14px", color: C.gray400,
+              transform: expandido ? "rotate(180deg)" : "rotate(0deg)",
+              transition: "transform 0.2s", lineHeight: 1,
+            }}>⌄</span>
+          )}
+        </div>
       </div>
 
-      {/* ── Tabs de rubro ────────────────────────────────────────────── */}
-      <div style={S.rubroTabs}>
-        {RUBROS.map(r => (
+      {/* ── FORMULARIO EXPANDIDO ─────────────────────────────────────── */}
+      {expandido && !bloqueado && (
+        <div style={{
+          padding: "12px 14px",
+          background: C.gray50,
+          borderTop: `1px solid ${C.gray100}`,
+          display: "flex", flexDirection: "column", gap: "12px",
+        }}>
+
+          {/* Grupo (solo admins pueden editarlo) */}
+          {esAdmin && (
+            <InputTexto
+              label="Grupo de comparación"
+              value={grupo}
+              onChange={e => { setGrupo(e.target.value); setIsDirty(true); }}
+              placeholder="Ej: Galletas Six Pack"
+            />
+          )}
+
+          {/* Grameaje / ML  —  Unidades por caja */}
+          <div>
+            <div style={{ fontSize: "10px", fontWeight: 600,
+              color: C.gray600, letterSpacing: "0.4px",
+              textTransform: "uppercase", marginBottom: "6px" }}>
+              Presentación
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <InputPrecio
+                label="Grameaje / ML"
+                campo="grameaje_ml"
+                valores={valores}
+                onChange={handleChange}
+                dirtyFields={dirtyFields}
+              />
+              <InputPrecio
+                label="Unidades x caja"
+                campo="unidades_caja"
+                valores={valores}
+                onChange={handleChange}
+                dirtyFields={dirtyFields}
+              />
+            </div>
+          </div>
+
+          {/* Precios caja */}
+          <div>
+            <div style={{ fontSize: "10px", fontWeight: 600,
+              color: C.gray600, letterSpacing: "0.4px",
+              textTransform: "uppercase", marginBottom: "6px" }}>
+              Precios por caja
+            </div>
+            <div style={{ display: "grid",
+              gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <InputPrecio label="Venta (Bs.)" campo="precio_venta_caja"
+                valores={valores} onChange={handleChange}
+                dirtyFields={dirtyFields} />
+              <InputPrecio label="Compra (Bs.)" campo="precio_compra_caja"
+                valores={valores} onChange={handleChange}
+                dirtyFields={dirtyFields} />
+            </div>
+            {margenCajaPct !== null && (
+              <div style={{
+                marginTop: "6px", padding: "7px 10px",
+                borderRadius: "8px", background: bgMargen(margenCajaPct),
+                display: "flex", alignItems: "center",
+                justifyContent: "space-between",
+              }}>
+                <span style={{ fontSize: "11px", color: C.gray600,
+                  fontWeight: 600 }}>Margen caja</span>
+                <span style={{ fontSize: "15px", fontWeight: 700,
+                  color: colorMargen(margenCajaPct) }}>
+                  {margenCajaPct}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Precios unidad */}
+          <div>
+            <div style={{ fontSize: "10px", fontWeight: 600,
+              color: C.gray600, letterSpacing: "0.4px",
+              textTransform: "uppercase", marginBottom: "6px" }}>
+              Precios por unidad
+            </div>
+            <div style={{ display: "grid",
+              gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <InputPrecio label="Venta (Bs.)" campo="precio_venta_unidad"
+                valores={valores} onChange={handleChange}
+                dirtyFields={dirtyFields} />
+              <InputPrecio label="Compra (Bs.)" campo="precio_compra_unidad"
+                valores={valores} onChange={handleChange}
+                dirtyFields={dirtyFields} />
+            </div>
+            {margenUnidadPct !== null && (
+              <div style={{
+                marginTop: "6px", padding: "7px 10px",
+                borderRadius: "8px", background: bgMargen(margenUnidadPct),
+                display: "flex", alignItems: "center",
+                justifyContent: "space-between",
+              }}>
+                <span style={{ fontSize: "11px", color: C.gray600,
+                  fontWeight: 600 }}>Margen unidad</span>
+                <span style={{ fontSize: "15px", fontWeight: 700,
+                  color: colorMargen(margenUnidadPct) }}>
+                  {margenUnidadPct}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Price Index expandido — con contexto del grupo */}
+          {priceIndex !== null && !esLider && (
+            <div style={{
+              padding: "9px 12px",
+              borderRadius: "8px",
+              background: bgPriceIndex(priceIndex),
+              display: "flex", alignItems: "center",
+              justifyContent: "space-between",
+            }}>
+              <div>
+                <div style={{ fontSize: "10px", fontWeight: 600,
+                  color: C.gray600, textTransform: "uppercase",
+                  letterSpacing: "0.4px" }}>Price Index</div>
+                <div style={{ fontSize: "11px", color: C.gray400, marginTop: "1px" }}>
+                  respecto al líder del grupo
+                </div>
+              </div>
+              <span style={{ fontSize: "18px", fontWeight: 700,
+                color: colorPriceIndex(priceIndex) }}>
+                {priceIndex}%
+              </span>
+            </div>
+          )}
+
+          {/* Imagen */}
           <button
-            key={r.id}
-            style={S.rubroTab(rubroActivo === r.id)}
-            onClick={() => setRubroActivo(r.id)}
+            onClick={() => fileRef.current?.click()}
+            style={{
+              width: "100%", height: `${TOUCH}px`,
+              background: C.white,
+              border: `1px dashed ${C.gray200}`,
+              borderRadius: "8px", fontSize: "12px", color: C.gray400,
+              cursor: "pointer", display: "flex",
+              alignItems: "center", justifyContent: "center", gap: "6px",
+              WebkitTapHighlightColor: "transparent",
+            }}
             type="button"
           >
-            {r.icon} {r.id}
+            {imgLoading ? <Spinner size={14} /> : "📷"}
+            <span>{imgLoading ? "Subiendo…"
+              : imgSrc ? "Cambiar imagen" : "Agregar imagen"}</span>
           </button>
-        ))}
-      </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            style={{ display: "none" }}
+            onChange={handleImagen}
+          />
 
-      {/* ── Banner relevamiento ──────────────────────────────────────── */}
-      {!loadingRelev && relevamiento && (
-        <div style={S.banner(relevamiento.estado)}>
-          <div style={S.bannerText}>
-            {finalizado ? "🔒" : "📝"}
-            <span>
-              {finalizado
-                ? `${periodoLabel} — finalizado`
-                : `${periodoLabel} — ${totalCargados}/${totalProductos} cargados`}
-            </span>
-          </div>
-          <div style={{ display: "flex", gap: "8px" }}>
-            {!finalizado && (
-              <button
-                style={S.bannerBtn(hoverFinal, "red")}
-                onClick={handleFinalizar}
-                onMouseEnter={() => setHoverFinal(true)}
-                onMouseLeave={() => setHoverFinal(false)}
-                type="button"
-              >
-                Finalizar
-              </button>
-            )}
-            {finalizado && (
-              <button
-                style={S.bannerBtn(hoverReabrir, "dark")}
-                onClick={handleReabrir}
-                onMouseEnter={() => setHoverReabrir(true)}
-                onMouseLeave={() => setHoverReabrir(false)}
-                type="button"
-              >
-                🔓 Reabrir
-              </button>
-            )}
-          </div>
+          {/* Toggle líder — dentro del form expandido, más fácil de encontrar */}
+          {esAdmin && (
+            <button
+              onClick={handleToggleLider}
+              disabled={loadingLider}
+              type="button"
+              style={{
+                width: "100%", height: "44px",
+                background: esLider ? "#FFF8E1" : C.white,
+                border: `2px solid ${esLider ? C.gold : C.gray200}`,
+                borderRadius: "10px",
+                fontSize: "13.5px", fontWeight: 700,
+                color: esLider ? C.gold : C.gray400,
+                cursor: loadingLider ? "wait" : "pointer",
+                display: "flex", alignItems: "center",
+                justifyContent: "center", gap: "8px",
+                transition: "all 0.15s",
+                WebkitTapHighlightColor: "transparent",
+              }}
+            >
+              {loadingLider
+                ? "Guardando…"
+                : esLider
+                  ? "⭐ Este producto es el LÍDER del grupo — tocar para desmarcar"
+                  : "☆ Marcar como LÍDER de este grupo"}
+            </button>
+          )}
+
+          {/* Guardar */}
+          <button
+            onClick={handleGuardar}
+            disabled={!isDirty || loading}
+            style={{
+              width: "100%", height: "48px",
+              background: isDirty ? C.red : C.gray100,
+              color: isDirty ? C.white : C.gray400,
+              border: "none", borderRadius: "10px",
+              fontSize: "14px", fontWeight: 700,
+              cursor: isDirty && !loading ? "pointer" : "default",
+              display: "flex", alignItems: "center",
+              justifyContent: "center", gap: "7px",
+              transition: "all 0.15s",
+              WebkitTapHighlightColor: "transparent",
+            }}
+            type="button"
+          >
+            {loading ? <Spinner /> : isDirty ? "💾 Guardar" : "✓ Sin cambios"}
+          </button>
+
         </div>
       )}
 
-      {/* ── Error ────────────────────────────────────────────────────── */}
-      {error && (
+      {/* Toast */}
+      {toast && (
         <div style={{
-          margin: "10px 1rem 0", padding: "10px 14px",
-          background: "#FFF5F5", borderLeft: `4px solid ${C.red}`,
-          borderRadius: "0 8px 8px 0", fontSize: "13px", color: "#C0303B",
+          position: "absolute",
+          bottom: "8px", left: "14px", right: "14px",
+          background: toast.tipo === "ok" ? C.green : C.red,
+          color: C.white, fontSize: "12px", fontWeight: 600,
+          padding: "8px 12px", borderRadius: "8px",
+          textAlign: "center", zIndex: 10,
+          boxShadow: "0 3px 10px rgba(0,0,0,0.15)",
         }}>
-          ⚠ {error}
+          {toast.msg}
         </div>
       )}
-
-      {/* ── Skeletons de carga ───────────────────────────────────────── */}
-      {loadingProds && (
-        Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} />)
-      )}
-
-      {/* ── Sin resultados ───────────────────────────────────────────── */}
-      {!loadingProds && categorias.length === 0 && (
-        <div style={S.empty}>
-          <span style={{ fontSize: "32px" }}>🔍</span>
-          <div style={{ fontSize: "14px", fontWeight: 600, color: C.navy }}>
-            Sin resultados
-          </div>
-          <div style={{ fontSize: "13px" }}>
-            Probá cambiar el rubro o la búsqueda.
-          </div>
-        </div>
-      )}
-
-      {/* ── Acordeones por categoría ─────────────────────────────────── */}
-      {!loadingProds && categorias.map(cat => (
-        <CategoriaAcordeon
-          key={cat}
-          categoria={cat}
-          productos={porCategoria[cat]}
-          precios={precios}
-          relevamiento={relevamiento}
-          empleado={empleado}
-          onGuardado={handlePrecioGuardado}
-          onProductoActualizado={handleProductoActualizado}
-        />
-      ))}
 
     </div>
   );

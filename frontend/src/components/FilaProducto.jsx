@@ -209,7 +209,12 @@ export default function FilaProducto({
   const fuente      = producto?.fuente ?? "LIDER";
   const fc          = FUENTE_CONFIG[fuente] ?? FUENTE_CONFIG.LIDER;
   const tienePrecio = !!precioActual?.id;
-  const esAdmin     = empleado?.rol === "admin";
+  const esAdmin = empleado?.rol?.toLowerCase() === "admin";
+
+  // Debug temporal — borrar después de confirmar que funciona
+  if (process.env.NODE_ENV === "development") {
+    console.log("[FilaProducto] rol empleado:", empleado?.rol, "| esAdmin:", esAdmin);
+  }
 
   const [expandido,    setExpandido]    = useState(false);
   const [esLider,      setEsLider]      = useState(producto?.es_lider ?? false);
@@ -506,23 +511,31 @@ export default function FilaProducto({
             </span>
           )}
 
-          {/* Botón toggle líder (solo admins) */}
+          {/* Botón toggle líder — solo admins, se ve en la fila resumen */}
           {esAdmin && !bloqueado && (
             <button
               onClick={handleToggleLider}
               disabled={loadingLider}
-              title={esLider ? "Desmarcar como líder" : "Marcar como líder"}
+              title={esLider ? "Desmarcar como líder" : "Marcar como líder de este grupo"}
               style={{
-                background: "none", border: "none",
+                background: esLider ? "#FFF8E1" : C.gray50,
+                border: `1.5px solid ${esLider ? C.gold : C.gray200}`,
+                borderRadius: "8px",
                 cursor: loadingLider ? "wait" : "pointer",
-                fontSize: "14px", padding: "2px",
-                opacity: loadingLider ? 0.5 : 1,
-                lineHeight: 1,
+                fontSize: "12px",
+                fontWeight: 600,
+                color: esLider ? C.gold : C.gray400,
+                padding: "3px 10px",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                flexShrink: 0,
+                transition: "all 0.15s",
                 WebkitTapHighlightColor: "transparent",
               }}
               type="button"
             >
-              {esLider ? "⭐" : "☆"}
+              {loadingLider ? "…" : esLider ? "⭐ Líder" : "☆ Marcar líder"}
             </button>
           )}
 
@@ -695,6 +708,34 @@ export default function FilaProducto({
             style={{ display: "none" }}
             onChange={handleImagen}
           />
+
+          {/* Toggle líder — dentro del form expandido, más fácil de encontrar */}
+          {esAdmin && (
+            <button
+              onClick={handleToggleLider}
+              disabled={loadingLider}
+              type="button"
+              style={{
+                width: "100%", height: "44px",
+                background: esLider ? "#FFF8E1" : C.white,
+                border: `2px solid ${esLider ? C.gold : C.gray200}`,
+                borderRadius: "10px",
+                fontSize: "13.5px", fontWeight: 700,
+                color: esLider ? C.gold : C.gray400,
+                cursor: loadingLider ? "wait" : "pointer",
+                display: "flex", alignItems: "center",
+                justifyContent: "center", gap: "8px",
+                transition: "all 0.15s",
+                WebkitTapHighlightColor: "transparent",
+              }}
+            >
+              {loadingLider
+                ? "Guardando…"
+                : esLider
+                  ? "⭐ Este producto es el LÍDER del grupo — tocar para desmarcar"
+                  : "☆ Marcar como LÍDER de este grupo"}
+            </button>
+          )}
 
           {/* Guardar */}
           <button
