@@ -293,7 +293,12 @@ def toggle_lider(
     # 2. Si no tiene grupo, usar la categoría como grupo automático
     if not grupo:
         cats = _cargar_categorias()
-        cat  = cats.get(prod.get("categoria_id"))
+        # categoria_id puede venir como int o str según Supabase — normalizamos a int
+        try:
+            cat_id = int(prod.get("categoria_id"))
+        except (TypeError, ValueError):
+            cat_id = None
+        cat = cats.get(cat_id) if cat_id is not None else None
         if cat and cat.get("nombre"):
             grupo = cat["nombre"]
             # Asignar el grupo automáticamente al producto
