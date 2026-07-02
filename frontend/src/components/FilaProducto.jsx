@@ -558,16 +558,6 @@ export default function FilaProducto({
           display: "flex", flexDirection: "column", gap: "12px",
         }}>
 
-          {/* Grupo (solo admins pueden editarlo) */}
-          {esAdmin && (
-            <InputTexto
-              label="Grupo de comparación"
-              value={grupo}
-              onChange={e => { setGrupo(e.target.value); setIsDirty(true); }}
-              placeholder="Ej: Galletas Six Pack"
-            />
-          )}
-
           {/* Grameaje / ML  —  Unidades por caja */}
           <div>
             <div style={{ fontSize: "10px", fontWeight: 600,
