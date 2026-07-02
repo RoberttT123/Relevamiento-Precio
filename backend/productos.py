@@ -276,10 +276,10 @@ def toggle_lider(
             detail="Solo los administradores pueden cambiar el líder.",
         )
 
-    # 1. Obtener producto actual
+    # 1. Obtener producto actual con su categoría
     prod_resp = (
         supabase.table("productos")
-        .select("id, grupo, es_lider")
+        .select("id, grupo, es_lider, categoria_id")
         .eq("id", producto_id)
         .single()
         .execute()
@@ -287,14 +287,22 @@ def toggle_lider(
     if not prod_resp.data:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
 
-    prod = prod_resp.data
+    prod  = prod_resp.data
     grupo = prod.get("grupo")
 
+    # 2. Si no tiene grupo, usar la categoría como grupo automático
     if not grupo:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="El producto no tiene un grupo asignado. Asigná un grupo antes de marcarlo como líder.",
-        )
+        cats = _cargar_categorias()
+        cat  = cats.get(prod.get("categoria_id"))
+        if cat and cat.get("nombre"):
+            grupo = cat["nombre"]
+            # Asignar el grupo automáticamente al producto
+            supabase.table("productos").update({"grupo": grupo}).eq("id", producto_id).execute()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="No se pudo determinar el grupo del producto.",
+            )
 
     ya_es_lider = prod.get("es_lider", False)
 
@@ -302,7 +310,7 @@ def toggle_lider(
         # Toggle OFF: solo desmarcar este producto
         supabase.table("productos").update({"es_lider": False}).eq("id", producto_id).execute()
     else:
-        # Toggle ON: desmarcar todos del grupo y marcar este
+        # Toggle ON: desmarcar todos los del mismo grupo y marcar este
         supabase.table("productos").update({"es_lider": False}).eq("grupo", grupo).execute()
         supabase.table("productos").update({"es_lider": True}).eq("id", producto_id).execute()
 

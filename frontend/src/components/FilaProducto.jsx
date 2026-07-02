@@ -268,14 +268,8 @@ export default function FilaProducto({
 
   // ── Toggle líder ─────────────────────────────────────────────────────────
   async function handleToggleLider(e) {
-    e.stopPropagation(); // no colapsar/expandir la fila al tocar el botón
+    e.stopPropagation();
     if (!esAdmin || loadingLider) return;
-
-    if (!grupo.trim()) {
-      mostrarToast("Asigná un grupo primero", "error");
-      setExpandido(true);
-      return;
-    }
 
     setLoadingLider(true);
     try {
