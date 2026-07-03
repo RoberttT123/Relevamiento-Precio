@@ -264,11 +264,13 @@ def toggle_lider(
     Si el producto ya era líder, lo desmarca (toggle).
     Solo admins pueden hacer esto.
 
-    Lógica:
-    1. Obtener el producto para saber su grupo y estado actual de es_lider.
-    2. Si no tiene grupo asignado, no se puede calcular Price Index → error.
-    3. Si ya es líder → desmarcar (es_lider = False).
-    4. Si no era líder → desmarcar todos los del mismo grupo y marcar este.
+    Lógica corregida:
+    1. Obtener el producto con su categoría.
+    2. Si no tiene grupo, asignar la categoría como grupo
+       Y asignar ese mismo grupo a todos los productos de la misma categoría
+       que tampoco tengan grupo — así el UPDATE de desmarcar los alcanza a todos.
+    3. Si ya es líder → desmarcar solo este.
+    4. Si no era líder → desmarcar TODOS del grupo → marcar este.
     """
     if empleado.rol != "admin":
         raise HTTPException(
@@ -290,10 +292,9 @@ def toggle_lider(
     prod  = prod_resp.data
     grupo = prod.get("grupo")
 
-    # 2. Si no tiene grupo, usar la categoría como grupo automático
+    # 2. Si no tiene grupo, derivarlo de la categoría
     if not grupo:
         cats = _cargar_categorias()
-        # categoria_id puede venir como int o str según Supabase — normalizamos a int
         try:
             cat_id = int(prod.get("categoria_id"))
         except (TypeError, ValueError):
@@ -301,23 +302,40 @@ def toggle_lider(
         cat = cats.get(cat_id) if cat_id is not None else None
         if cat and cat.get("nombre"):
             grupo = cat["nombre"]
-            # Asignar el grupo automáticamente al producto
-            supabase.table("productos").update({"grupo": grupo}).eq("id", producto_id).execute()
         else:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="No se pudo determinar el grupo del producto.",
             )
 
+        # Asignar el grupo a TODOS los productos de la misma categoría
+        # que todavía no tengan grupo — así el desmarcar posterior los alcanza
+        cat_id_actual = prod.get("categoria_id")
+        if cat_id_actual:
+            supabase.table("productos").update({"grupo": grupo}) \
+                .eq("categoria_id", cat_id_actual) \
+                .is_("grupo", "null") \
+                .eq("activo", True) \
+                .execute()
+
+        # Asignar grupo al producto actual también
+        supabase.table("productos").update({"grupo": grupo}) \
+            .eq("id", producto_id).execute()
+
     ya_es_lider = prod.get("es_lider", False)
 
     if ya_es_lider:
         # Toggle OFF: solo desmarcar este producto
-        supabase.table("productos").update({"es_lider": False}).eq("id", producto_id).execute()
+        supabase.table("productos").update({"es_lider": False}) \
+            .eq("id", producto_id).execute()
     else:
-        # Toggle ON: desmarcar todos los del mismo grupo y marcar este
-        supabase.table("productos").update({"es_lider": False}).eq("grupo", grupo).execute()
-        supabase.table("productos").update({"es_lider": True}).eq("id", producto_id).execute()
+        # Toggle ON:
+        # Primero desmarcar TODOS los líderes del mismo grupo
+        supabase.table("productos").update({"es_lider": False}) \
+            .eq("grupo", grupo).execute()
+        # Luego marcar este
+        supabase.table("productos").update({"es_lider": True}) \
+            .eq("id", producto_id).execute()
 
     # Devolver el producto actualizado
     resultado = (
