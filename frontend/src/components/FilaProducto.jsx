@@ -227,6 +227,7 @@ export default function FilaProducto({
     precio_venta_unidad:  precioActual?.precio_venta_unidad  ?? "",
     grameaje_ml:          producto?.grameaje_ml              ?? "",
     unidades_caja:        producto?.unidades_caja            ?? "",
+    index_marca:          precioActual?.index_marca          ?? "",
   });
   const [dirtyFields, setDirtyFields] = useState({});
   const [isDirty,     setIsDirty]     = useState(false);
@@ -312,7 +313,8 @@ export default function FilaProducto({
       cambiosProducto.grupo = grupo.trim() || null;
 
     ["precio_compra_caja","precio_venta_caja",
-     "precio_compra_unidad","precio_venta_unidad"].forEach(c => {
+     "precio_compra_unidad","precio_venta_unidad",
+     "index_marca"].forEach(c => {
       if (dirtyFields[c] && valores[c] !== "")
         cambiosPrecios[c] = parseFloat(valores[c]);
     });
@@ -646,6 +648,55 @@ export default function FilaProducto({
             )}
           </div>
 
+          {/* Index Marca — valor fijo que provee la marca, ingresado manualmente */}
+          <div>
+            <div style={{ fontSize: "10px", fontWeight: 600,
+              color: C.gray600, letterSpacing: "0.4px",
+              textTransform: "uppercase", marginBottom: "6px" }}>
+              Index Marca
+            </div>
+            <div style={{ position: "relative" }}>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                placeholder="Ej: 85.5"
+                value={valores.index_marca ?? ""}
+                onChange={e => handleChange("index_marca", e.target.value)}
+                style={{
+                  width: "100%",
+                  height: `${TOUCH}px`,
+                  padding: "0 8px 0 12px",
+                  border: `1.5px solid ${dirtyFields.index_marca ? C.amber : C.gray200}`,
+                  borderRadius: "8px",
+                  fontSize: "15px",
+                  color: C.navy,
+                  background: C.gray50,
+                  outline: "none",
+                  boxSizing: "border-box",
+                  fontFamily: "inherit",
+                  WebkitAppearance: "none",
+                }}
+              />
+              <span style={{
+                position: "absolute", right: "10px", top: "50%",
+                transform: "translateY(-50%)",
+                fontSize: "11px", color: C.gray400, pointerEvents: "none",
+              }}>%</span>
+            </div>
+            {valores.index_marca !== "" && (
+              <div style={{
+                marginTop: "6px", padding: "5px 10px",
+                borderRadius: "8px", background: C.gray100,
+                fontSize: "11px", color: C.gray600,
+              }}>
+                Valor fijo provisto por la marca
+              </div>
+            )}
+          </div>
+
+          {/* Price Index real — calculado automáticamente vs el líder */}
           {/* Price Index expandido — con contexto del grupo */}
           {priceIndex !== null && !esLider && (
             <div style={{
