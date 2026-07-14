@@ -3,7 +3,7 @@
  * Productos.jsx — Vista agrupada por categoría
  * ---------------------------------------------
  * Muestra acordeones por categoría. Dentro de cada uno,
- * los productos ordenados LIDER → COMPETENCIA → SEGUIDOR,
+ * los productos ordenados PROESA → COMPETENCIA → SEGUIDOR,
  * todos con sus precios visibles a la vez para comparar.
  *
  * Props:
@@ -242,7 +242,7 @@ function CategoriaAcordeon({
     }
   });
 
-  // Ordenar: LIDER → COMPETENCIA → SEGUIDOR
+  // Ordenar: PROESA → COMPETENCIA → SEGUIDOR
   const ordenados = [...productos].sort(
     (a, b) => (ORDEN_FUENTE[a.fuente] ?? 9) - (ORDEN_FUENTE[b.fuente] ?? 9)
   );
@@ -289,6 +289,10 @@ function CategoriaAcordeon({
 export default function Productos({ empleado }) {
   const token = localStorage.getItem("token") ?? "";
 
+  // ── Límite de relevamientos por período (mes), por empleado ──────────────
+  // Coincide con LIMITE_MENSUAL en backend/relevamientos.py.
+  const LIMITE_MENSUAL = 4;
+
   // ── Filtros ───────────────────────────────────────────────────────────────
   const [busqueda,     setBusqueda]     = useState("");
   const [rubroActivo,  setRubroActivo]  = useState("Todos");
@@ -328,9 +332,14 @@ export default function Productos({ empleado }) {
   }, [rubroActivo, fuenteFiltro, busqueda, token]);
 
   // ── Cargar o crear relevamiento del mes ───────────────────────────────────
-// DESPUÉS
-  const LIMITE_MENSUAL = 4;
-
+  // Un mismo empleado puede tener hasta LIMITE_MENSUAL relevamientos en el
+  // mismo período. Regla de entrada a la pantalla:
+  //   1. Si hay un relevamiento en borrador este mes → seguimos con ese.
+  //   2. Si no hay borrador pero todavía queda cupo (< LIMITE_MENSUAL)
+  //      → creamos uno nuevo automáticamente.
+  //   3. Si ya se llegó al límite (todos finalizados) → mostramos el más
+  //      reciente en modo lectura; el usuario puede "Reabrir" ese mismo
+  //      desde el banner si necesita seguir cargando precios.
   const cargarRelevamiento = useCallback(async () => {
     setLoadingRelev(true);
     try {
@@ -347,11 +356,9 @@ export default function Productos({ empleado }) {
       const enBorrador = lista.find(r => r.estado === "borrador");
 
       if (enBorrador) {
-        // Ya hay uno abierto este mes: seguimos trabajando en ese
         setRelevamiento(enBorrador);
         cargarPrecios(enBorrador.id);
       } else if (lista.length < LIMITE_MENSUAL) {
-        // No hay borrador, pero todavía queda cupo: creamos uno nuevo
         const crear = await fetch(`${API}/api/relevamientos`, {
           method: "POST",
           headers: { "Content-Type": "application/json",
@@ -363,9 +370,6 @@ export default function Productos({ empleado }) {
           setRelevamiento(nuevo);
         }
       } else {
-        // Límite alcanzado (4/4, todos finalizados): mostramos el último
-        // en modo lectura. El usuario puede "Reabrir" ese mismo si necesita
-        // seguir cargando precios, sin sumar uno nuevo.
         const ultimo = lista[0] ?? null;
         setRelevamiento(ultimo);
         if (ultimo) cargarPrecios(ultimo.id);
@@ -492,7 +496,7 @@ export default function Productos({ empleado }) {
               type="button"
             >
               {f === "Todos"       ? "Todos"
-             : f === "PROESA"       ? "🏢"
+             : f === "PROESA"      ? "🏢"
              : f === "COMPETENCIA" ? "⚡"
              :                       "◎"}
             </button>

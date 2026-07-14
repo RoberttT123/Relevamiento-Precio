@@ -5,11 +5,11 @@
  * Franja superior:
  *   Mobile (<640px):  logo (izq) | avatar (der, abre menú desplegable)
  *   Desktop (≥640px): logo (izq) | badge período + avatar + nombre/rol + logout (der)
- * Franja inferior:  tabs Relevamiento · Panel de control
+ * Franja inferior:  tabs Relevamiento · Panel de control · Asignaciones (admin)
  *
  * Props:
  *   empleado      { id, nombre, rol, codigo_empleado }
- *   paginaActual  "relevamiento" | "panel"
+ *   paginaActual  "relevamiento" | "panel" | "asignaciones"
  *   onNavegar     (pagina) => void
  *   onLogout      () => void
  */
@@ -49,12 +49,12 @@ function iniciales(nombre = "") {
 }
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
-// DESPUÉS
 const TABS = [
   { id: "relevamiento", label: "Relevamiento",     icon: "📋" },
   { id: "panel",        label: "Panel de control",  icon: "📊" },
   { id: "asignaciones", label: "Asignaciones",      icon: "🗂️", adminOnly: true },
 ];
+
 // ─── Iconos SVG simples (consistentes, sin depender del set de emojis) ───────
 const Icon = {
   Calendario: (p) => (

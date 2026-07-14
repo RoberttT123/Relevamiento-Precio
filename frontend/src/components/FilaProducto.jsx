@@ -207,7 +207,7 @@ export default function FilaProducto({
 }) {
   const token       = localStorage.getItem("token") ?? "";
   const fuente      = producto?.fuente ?? "PROESA";
-  const fc          = FUENTE_CONFIG[fuente] ?? FUENTE_CONFIG.LIDER;
+  const fc          = FUENTE_CONFIG[fuente] ?? FUENTE_CONFIG.PROESA;
   const tienePrecio = !!precioActual?.id;
   const esAdmin     = empleado?.rol?.toLowerCase() === "admin";
 
@@ -444,7 +444,7 @@ export default function FilaProducto({
             }}>
               {fc.icon} {fc.label}
             </span>
-            {/* Badge de líder adicional si es_lider aunque fuente no sea LIDER */}
+            {/* Badge de líder adicional si es_lider aunque fuente no sea PROESA */}
             {esLider && fuente !== "PROESA" && (
               <span style={{
                 fontSize: "9.5px", fontWeight: 700,

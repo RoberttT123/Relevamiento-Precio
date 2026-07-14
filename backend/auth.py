@@ -2,9 +2,10 @@
 """
 auth.py — Rutas de autenticación
 ---------------------------------
-POST /api/auth/login   → valida empleado en Supabase, devuelve JWT
-GET  /api/auth/me      → devuelve datos del empleado logueado (token requerido)
-POST /api/auth/logout  → (stateless JWT: solo limpia en el cliente, aquí es no-op)
+POST /api/auth/login      → valida empleado en Supabase, devuelve JWT
+GET  /api/auth/me         → devuelve datos del empleado logueado (token requerido)
+GET  /api/auth/empleados  → lista empleados activos (solo admin, uso administrativo)
+POST /api/auth/logout     → (stateless JWT: solo limpia en el cliente, aquí es no-op)
 
 Integración:
   - Supabase como base de datos (tabla `empleados`)
@@ -222,6 +223,7 @@ async def me(empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)]):
     """
     return MeResponse(empleado=empleado)
 
+
 # ─── GET /api/auth/empleados ──────────────────────────────────────────────────
 @router.get("/empleados", response_model=list[EmpleadoOut])
 def listar_empleados(
@@ -229,7 +231,7 @@ def listar_empleados(
 ):
     """
     Lista empleados activos. Uso administrativo
-    (ej. asignar categorías a relevadores).
+    (ej. asignar categorías a relevadores en /api/categorias).
     """
     if empleado.rol != "admin":
         raise HTTPException(
@@ -245,6 +247,8 @@ def listar_empleados(
         .execute()
     )
     return resp.data or []
+
+
 # ─── POST /api/auth/logout ────────────────────────────────────────────────────
 @router.post("/logout", status_code=status.HTTP_200_OK)
 async def logout():

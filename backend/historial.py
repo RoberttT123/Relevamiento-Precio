@@ -281,7 +281,7 @@ def evolucion_precios(
       {
         "descripcion": "BABYSEC x48",
         "marca": "BABYSEC",
-        "fuente": "LIDER",
+        "fuente": "PROESA",
         "puntos": [
           { "periodo": "2025-07", "precio_venta_caja": 21.0, "precio_venta_unidad": 0.44 },
           { "periodo": "2025-08", "precio_venta_caja": 21.0, "precio_venta_unidad": 0.44 },

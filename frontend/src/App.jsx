@@ -3,13 +3,14 @@
  * App.jsx — Punto de entrada de la aplicación
  * ---------------------------------------------
  * Maneja el estado global de sesión y el routing
- * entre las tres pantallas principales:
+ * entre las pantallas principales:
  *   · Login
  *   · Productos (relevamiento)
  *   · Panel de control (históricos)
+ *   · Asignación de categorías (solo admin)
  *
  * No usa react-router — el routing es por estado
- * simple dado que son solo 2 páginas post-login.
+ * simple dado que son pocas páginas post-login.
  *
  * Para levantar el proyecto:
  *   npm create vite@latest frontend -- --template react
