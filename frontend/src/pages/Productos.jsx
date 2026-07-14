@@ -35,7 +35,7 @@ const C = {
 const API = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 
 // ─── Orden de fuentes para mostrar dentro de cada categoría ──────────────────
-const ORDEN_FUENTE = { LIDER: 0, COMPETENCIA: 1, SEGUIDOR: 2 };
+const ORDEN_FUENTE = { PROESA: 0, COMPETENCIA: 1, SEGUIDOR: 2 };
 
 // ─── Rubros para los tabs ─────────────────────────────────────────────────────
 const RUBROS = [
@@ -328,6 +328,9 @@ export default function Productos({ empleado }) {
   }, [rubroActivo, fuenteFiltro, busqueda, token]);
 
   // ── Cargar o crear relevamiento del mes ───────────────────────────────────
+// DESPUÉS
+  const LIMITE_MENSUAL = 4;
+
   const cargarRelevamiento = useCallback(async () => {
     setLoadingRelev(true);
     try {
@@ -338,19 +341,34 @@ export default function Productos({ empleado }) {
         `${API}/api/relevamientos?periodo=${periodo}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      // Viene ordenada por created_at desc → lista[0] es la más reciente
       const lista = await resp.json();
 
-      if (lista.length > 0) {
-        setRelevamiento(lista[0]);
-        cargarPrecios(lista[0].id);
-      } else {
+      const enBorrador = lista.find(r => r.estado === "borrador");
+
+      if (enBorrador) {
+        // Ya hay uno abierto este mes: seguimos trabajando en ese
+        setRelevamiento(enBorrador);
+        cargarPrecios(enBorrador.id);
+      } else if (lista.length < LIMITE_MENSUAL) {
+        // No hay borrador, pero todavía queda cupo: creamos uno nuevo
         const crear = await fetch(`${API}/api/relevamientos`, {
           method: "POST",
           headers: { "Content-Type": "application/json",
                      Authorization: `Bearer ${token}` },
           body: JSON.stringify({ periodo }),
         });
-        if (crear.ok) setRelevamiento(await crear.json());
+        if (crear.ok) {
+          const nuevo = await crear.json();
+          setRelevamiento(nuevo);
+        }
+      } else {
+        // Límite alcanzado (4/4, todos finalizados): mostramos el último
+        // en modo lectura. El usuario puede "Reabrir" ese mismo si necesita
+        // seguir cargando precios, sin sumar uno nuevo.
+        const ultimo = lista[0] ?? null;
+        setRelevamiento(ultimo);
+        if (ultimo) cargarPrecios(ultimo.id);
       }
     } catch (_) {
     } finally {
@@ -466,7 +484,7 @@ export default function Productos({ empleado }) {
         </div>
 
         <div style={S.toggleFuente}>
-          {["Todos","LIDER","COMPETENCIA","SEGUIDOR"].map(f => (
+          {["Todos","PROESA","COMPETENCIA","SEGUIDOR"].map(f => (
             <button
               key={f}
               style={S.toggleBtn(fuenteFiltro === f)}
@@ -474,7 +492,7 @@ export default function Productos({ empleado }) {
               type="button"
             >
               {f === "Todos"       ? "Todos"
-             : f === "LIDER"       ? "⭐"
+             : f === "PROESA"       ? "🏢"
              : f === "COMPETENCIA" ? "⚡"
              :                       "◎"}
             </button>

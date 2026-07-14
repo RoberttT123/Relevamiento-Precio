@@ -82,7 +82,7 @@ function bgPriceIndex(pi) {
 
 // ─── Configuración de badges por fuente ──────────────────────────────────────
 const FUENTE_CONFIG = {
-  LIDER:       { bg: C.navy,  fg: C.white, icon: "⭐", label: "LÍDER"  },
+  PROESA:      { bg: C.navy,  fg: C.white, icon: "🏢", label: "PROESA" },
   COMPETENCIA: { bg: C.red,   fg: C.white, icon: "⚡", label: "COMP."  },
   SEGUIDOR:    { bg: C.amber, fg: C.navy,  icon: "◎", label: "SEG."   },
 };
@@ -206,7 +206,7 @@ export default function FilaProducto({
   precioLider,
 }) {
   const token       = localStorage.getItem("token") ?? "";
-  const fuente      = producto?.fuente ?? "LIDER";
+  const fuente      = producto?.fuente ?? "PROESA";
   const fc          = FUENTE_CONFIG[fuente] ?? FUENTE_CONFIG.LIDER;
   const tienePrecio = !!precioActual?.id;
   const esAdmin     = empleado?.rol?.toLowerCase() === "admin";
@@ -445,7 +445,7 @@ export default function FilaProducto({
               {fc.icon} {fc.label}
             </span>
             {/* Badge de líder adicional si es_lider aunque fuente no sea LIDER */}
-            {esLider && fuente !== "LIDER" && (
+            {esLider && fuente !== "PROESA" && (
               <span style={{
                 fontSize: "9.5px", fontWeight: 700,
                 color: C.white, background: C.gold,

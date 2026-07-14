@@ -222,7 +222,29 @@ async def me(empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)]):
     """
     return MeResponse(empleado=empleado)
 
+# ─── GET /api/auth/empleados ──────────────────────────────────────────────────
+@router.get("/empleados", response_model=list[EmpleadoOut])
+def listar_empleados(
+    empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)],
+):
+    """
+    Lista empleados activos. Uso administrativo
+    (ej. asignar categorías a relevadores).
+    """
+    if empleado.rol != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden ver la lista de empleados.",
+        )
 
+    resp = (
+        supabase.table("empleados")
+        .select("id, nombre, rol, codigo_empleado")
+        .eq("activo", True)
+        .order("nombre")
+        .execute()
+    )
+    return resp.data or []
 # ─── POST /api/auth/logout ────────────────────────────────────────────────────
 @router.post("/logout", status_code=status.HTTP_200_OK)
 async def logout():

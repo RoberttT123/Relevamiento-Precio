@@ -190,7 +190,7 @@ def panel_control(
     periodo:   str | None = Query(None),
     rubro:     str | None = Query(None),
     categoria: str | None = Query(None),
-    fuente:    Literal["LIDER", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
+    fuente:    Literal["PROESA", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
     empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
 ):
     query = supabase.table("vista_panel_control").select("*")
@@ -215,7 +215,7 @@ def comparativa_periodos(
     periodo_a: str = Query(...),
     periodo_b: str = Query(...),
     rubro:     str | None = Query(None),
-    fuente:    Literal["LIDER", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
+    fuente:    Literal["PROESA", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
     _empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
 ):
     def _traer_periodo(periodo: str) -> dict:
@@ -269,7 +269,7 @@ def evolucion_precios(
     categoria: str = Query(..., description="Nombre exacto de la categoría a graficar"),
     meses:     int = Query(12, ge=2, le=24, description="Cuántos meses hacia atrás mostrar"),
     rubro:     str | None = Query(None),
-    fuente:    Literal["LIDER", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
+    fuente:    Literal["PROESA", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
     _empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
 ):
     """
@@ -416,7 +416,7 @@ def resumen_periodo(
     return ResumenPeriodo(
         periodo                   = periodo,
         total_productos           = len(filas),
-        total_lider               = sum(1 for f in filas if f["fuente"] == "LIDER"),
+        total_lider               = sum(1 for f in filas if f["fuente"] == "PROESA"),
         total_competencia         = sum(1 for f in filas if f["fuente"] == "COMPETENCIA"),
         promedio_margen_caja_pct  = round(sum(margenes) / len(margenes), 4) if margenes else None,
         productos_sin_precio      = max(0, total_activos - len(filas)),

@@ -49,11 +49,12 @@ function iniciales(nombre = "") {
 }
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
+// DESPUÉS
 const TABS = [
-  { id: "relevamiento", label: "Relevamiento",    icon: "📋" },
-  { id: "panel",        label: "Panel de control", icon: "📊" },
+  { id: "relevamiento", label: "Relevamiento",     icon: "📋" },
+  { id: "panel",        label: "Panel de control",  icon: "📊" },
+  { id: "asignaciones", label: "Asignaciones",      icon: "🗂️", adminOnly: true },
 ];
-
 // ─── Iconos SVG simples (consistentes, sin depender del set de emojis) ───────
 const Icon = {
   Calendario: (p) => (
@@ -483,7 +484,9 @@ export default function Navbar({ empleado, paginaActual, onNavegar, onLogout }) 
 
       {/* ── Franja inferior: tabs ────────────────────────────────────── */}
       <div style={S.tabsBar} role="tablist">
-        {TABS.map((tab) => {
+        {TABS
+          .filter(tab => !tab.adminOnly || empleado?.rol === "admin")
+          .map((tab) => {
           const activo = paginaActual === tab.id;
           const hover  = !!hoverTabs[tab.id];
           return (

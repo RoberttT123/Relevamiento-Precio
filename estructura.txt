@@ -1,0 +1,130 @@
+.
+├── .DS_Store
+├── backend
+│   ├── __pycache__
+│   │   ├── auth.cpython-310.pyc
+│   │   ├── historial.cpython-310.pyc
+│   │   ├── main.cpython-310.pyc
+│   │   ├── productos.cpython-310.pyc
+│   │   └── relevamientos.cpython-310.pyc
+│   ├── .env
+│   ├── .gitignore
+│   ├── auth.py
+│   ├── historial.py
+│   ├── main.py
+│   ├── productos.py
+│   ├── relevamientos.py
+│   ├── requirements.txt
+│   └── venv
+│       ├── bin
+│       │   ├── activate
+│       │   ├── activate.csh
+│       │   ├── activate.fish
+│       │   ├── Activate.ps1
+│       │   ├── dotenv
+│       │   ├── fastapi
+│       │   ├── httpx
+│       │   ├── idna
+│       │   ├── pip
+│       │   ├── pip3
+│       │   ├── pip3.10
+│       │   ├── python -> python3
+│       │   ├── python3 -> /usr/local/bin/python3
+│       │   ├── python3.10 -> python3
+│       │   ├── uvicorn
+│       │   ├── watchfiles
+│       │   └── websockets
+│       ├── include
+│       ├── lib
+│       │   └── python3.10
+│       └── pyvenv.cfg
+├── database
+├── estructura.txt
+├── frontend
+│   ├── .DS_Store
+│   ├── .env
+│   ├── .gitignore
+│   ├── .oxlintrc.json
+│   ├── android
+│   │   ├── .DS_Store
+│   │   ├── .gitignore
+│   │   ├── .gradle
+│   │   │   ├── 8.14.3
+│   │   │   ├── buildOutputCleanup
+│   │   │   ├── config.properties
+│   │   │   ├── file-system.probe
+│   │   │   └── vcs-1
+│   │   ├── .idea
+│   │   │   ├── .gitignore
+│   │   │   ├── AndroidProjectSystem.xml
+│   │   │   ├── caches
+│   │   │   ├── compiler.xml
+│   │   │   ├── deploymentTargetSelector.xml
+│   │   │   ├── gradle.xml
+│   │   │   ├── migrations.xml
+│   │   │   ├── misc.xml
+│   │   │   ├── runConfigurations.xml
+│   │   │   ├── vcs.xml
+│   │   │   └── workspace.xml
+│   │   ├── app
+│   │   │   ├── .DS_Store
+│   │   │   ├── .gitignore
+│   │   │   ├── build.gradle
+│   │   │   ├── capacitor.build.gradle
+│   │   │   ├── proguard-rules.pro
+│   │   │   └── src
+│   │   ├── build.gradle
+│   │   ├── capacitor-cordova-android-plugins
+│   │   │   ├── build.gradle
+│   │   │   ├── cordova.variables.gradle
+│   │   │   └── src
+│   │   ├── capacitor.settings.gradle
+│   │   ├── gradle
+│   │   │   └── wrapper
+│   │   ├── gradle.properties
+│   │   ├── gradlew
+│   │   ├── gradlew.bat
+│   │   ├── local.properties
+│   │   ├── settings.gradle
+│   │   └── variables.gradle
+│   ├── capacitor.config.json
+│   ├── dev-dist
+│   │   ├── registerSW.js
+│   │   ├── sw.js
+│   │   └── workbox-5910460b.js
+│   ├── generar_iconos.py
+│   ├── index.html
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── public
+│   │   ├── favicon.svg
+│   │   ├── icons
+│   │   │   ├── icon-192.png
+│   │   │   └── icon-512.png
+│   │   ├── icons.svg
+│   │   ├── manifest.json
+│   │   └── sw.js
+│   ├── README.md
+│   ├── src
+│   │   ├── App.css
+│   │   ├── App.jsx
+│   │   ├── assets
+│   │   │   ├── hero.png
+│   │   │   ├── logo_proesa.png
+│   │   │   ├── react.svg
+│   │   │   └── vite.svg
+│   │   ├── components
+│   │   │   ├── FilaProducto.jsx
+│   │   │   ├── GraficoEvolucion.jsx
+│   │   │   ├── GraficoMargen.jsx
+│   │   │   └── Navbar.jsx
+│   │   ├── index.css
+│   │   ├── main.jsx
+│   │   └── pages
+│   │       ├── Login.jsx
+│   │       ├── PanelControl.jsx
+│   │       └── Productos.jsx
+│   └── vite.config.js
+└── package-lock.json
+
+30 directories, 98 files

@@ -13,19 +13,18 @@ En Render configurás:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# DESPUÉS
 from auth          import router as auth_router
 from productos     import router as productos_router
 from relevamientos import router as relevamientos_router
 from historial     import router as historial_router
+from categorias    import router as categorias_router
 
 app = FastAPI(
     title="Relevamiento de Precios — PROESA",
     version="1.0.0",
 )
 
-# ─── CORS ────────────────────────────────────────────────────────────────────
-# En producción reemplazá "*" por la URL exacta de tu frontend en Render.
-# Ej: "https://relevamiento-precios.onrender.com"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://relevamiento-precio-1frontend.onrender.com",
@@ -36,10 +35,12 @@ app.add_middleware(
 )
 
 # ─── Routers ─────────────────────────────────────────────────────────────────
+# DESPUÉS
 app.include_router(auth_router)
 app.include_router(productos_router)
 app.include_router(relevamientos_router)
 app.include_router(historial_router)
+app.include_router(categorias_router)
 
 
 @app.get("/")

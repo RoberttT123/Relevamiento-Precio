@@ -290,10 +290,10 @@ function ProductoCard({ row }) {
           </div>
         </div>
         <span style={S.chip(
-          row.fuente === "LIDER" ? C.white : C.red,
-          row.fuente === "LIDER" ? C.navy  : C.redLight,
+          row.fuente === "PROESA" ? C.white : C.red,
+          row.fuente === "PROESA" ? C.navy  : C.redLight,
         )}>
-          {row.fuente === "LIDER" ? "⭐ LÍDER" : "⚡ Comp."}
+          {row.fuente === "PROESA" ? "🏢 PROESA" : "⚡ Comp."}
         </span>
       </div>
       <div style={S.prodCardPreciosGrid}>
@@ -442,47 +442,57 @@ export default function PanelControl({ empleado }) {
 
   // ── Exportar a XLSX ───────────────────────────────────────────────────────
   function exportarXLSX(filas, periodo) {
-    const HEADERS = [
-      "Rubro", "Categoría", "Fuente", "Marca", "Producto",
-      "Gr/ML", "P.Compra Caja", "P.Venta Caja", "Margen Caja %",
-      "P.Compra Ud.", "P.Venta Ud.", "Margen Ud. %",
-      "Index Real", "Index Marca", "Última edición",
-    ];
+  const HEADERS = [
+    "Rubro", "Categoría", "Fuente", "Marca", "Producto",
+    "Gr/ML", "P.Compra Caja", "P.Venta Caja", "Margen Caja %", "Margen Caja (Bs)",
+    "P.Compra Ud.", "P.Venta Ud.", "Margen Ud. %", "Margen Unidad (Bs)",
+    "Precio x Gr/ML",
+    "Index Real", "Index Marca", "Última edición",
+  ];
 
-    const rows = filas.map(r => ({
-      "Rubro":           r.rubro,
-      "Categoría":       r.categoria,
-      "Fuente":          r.fuente,
-      "Marca":           r.marca,
-      "Producto":        r.descripcion,
-      "Gr/ML":           r.grameaje_ml ?? "",
-      "P.Compra Caja":   r.precio_compra_caja   ?? "",
-      "P.Venta Caja":    r.precio_venta_caja     ?? "",
-      "Margen Caja %":   r.margen_caja_pct   != null ? parseFloat(r.margen_caja_pct.toFixed(1))   : "",
-      "P.Compra Ud.":    r.precio_compra_unidad  ?? "",
-      "P.Venta Ud.":     r.precio_venta_unidad   ?? "",
-      "Margen Ud. %":    r.margen_unidad_pct != null ? parseFloat(r.margen_unidad_pct.toFixed(1)) : "",
-      "Index Real":      r.index_real  != null ? parseFloat(r.index_real.toFixed(2))  : "",
-      "Index Marca":     r.index_marca != null ? parseFloat(r.index_marca.toFixed(2)) : "",
-      "Última edición":  r.ultima_edicion
-                           ? new Date(r.ultima_edicion).toLocaleDateString("es-BO") : "",
-    }));
+  const rows = filas.map(r => {
+    const precioPorGrMl =
+      r.precio_venta_unidad != null && r.grameaje_ml != null && r.grameaje_ml !== 0
+        ? parseFloat((r.precio_venta_unidad / r.grameaje_ml).toFixed(4))
+        : "";
 
-    const hoja  = XLSX.utils.json_to_sheet(rows, { header: HEADERS });
-    const libro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(libro, hoja, `Relevamiento ${periodo}`);
+    return {
+      "Rubro":              r.rubro,
+      "Categoría":          r.categoria,
+      "Fuente":             r.fuente,
+      "Marca":              r.marca,
+      "Producto":           r.descripcion,
+      "Gr/ML":              r.grameaje_ml ?? "",
+      "P.Compra Caja":      r.precio_compra_caja   ?? "",
+      "P.Venta Caja":       r.precio_venta_caja     ?? "",
+      "Margen Caja %":      r.margen_caja_pct   != null ? parseFloat(r.margen_caja_pct.toFixed(1))   : "",
+      "Margen Caja (Bs)":   r.margen_caja_bs    != null ? parseFloat(r.margen_caja_bs.toFixed(2))    : "",
+      "P.Compra Ud.":       r.precio_compra_unidad  ?? "",
+      "P.Venta Ud.":        r.precio_venta_unidad   ?? "",
+      "Margen Ud. %":       r.margen_unidad_pct != null ? parseFloat(r.margen_unidad_pct.toFixed(1)) : "",
+      "Margen Unidad (Bs)": r.margen_unidad_bs  != null ? parseFloat(r.margen_unidad_bs.toFixed(2))  : "",
+      "Precio x Gr/ML":     precioPorGrMl,
+      "Index Real":         r.index_real  != null ? parseFloat(r.index_real.toFixed(2))  : "",
+      "Index Marca":        r.index_marca != null ? parseFloat(r.index_marca.toFixed(2)) : "",
+      "Última edición":     r.ultima_edicion
+                               ? new Date(r.ultima_edicion).toLocaleDateString("es-BO") : "",
+    };
+  });
 
-    // Ancho de columnas automático
-    const colWidths = HEADERS.map(h => ({
-      wch: Math.min(
-        Math.max(h.length, ...rows.map(r => String(r[h] ?? "").length)) + 2,
-        40
-      ),
-    }));
-    hoja["!cols"] = colWidths;
+  const hoja  = XLSX.utils.json_to_sheet(rows, { header: HEADERS });
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, `Relevamiento ${periodo}`);
 
-    XLSX.writeFile(libro, `relevamiento_${periodo}.xlsx`);
-  }
+  const colWidths = HEADERS.map(h => ({
+    wch: Math.min(
+      Math.max(h.length, ...rows.map(r => String(r[h] ?? "").length)) + 2,
+      40
+    ),
+  }));
+  hoja["!cols"] = colWidths;
+
+  XLSX.writeFile(libro, `relevamiento_${periodo}.xlsx`);
+}
 
   // ── Card de resumen ───────────────────────────────────────────────────────
   function CardResumen({ icon, label, valor, sub, colorValor }) {
@@ -554,7 +564,7 @@ export default function PanelControl({ empleado }) {
         <select className="panel-select" value={fuenteSel}
           onChange={e => setFuenteSel(e.target.value)} style={S.select(!!fuenteSel)}>
           <option value="">LÍDER + Competencia + Seguidor</option>
-          <option value="LIDER">⭐ Solo Líder</option>
+          <option value="PROESA">🏢 Solo PROESA</option>
           <option value="COMPETENCIA">⚡ Solo Competencia</option>
           <option value="SEGUIDOR">◎ Solo Seguidor</option>
         </select>
@@ -565,7 +575,7 @@ export default function PanelControl({ empleado }) {
         <CardResumen icon="📦" label="Productos relevados"
           valor={resumen?.total_productos}
           sub={`${resumen?.productos_sin_precio ?? "—"} sin precio`} />
-        <CardResumen icon="⭐" label="Líder"
+        <CardResumen icon="🏢" label="PROESA"
           valor={resumen?.total_lider} colorValor={C.navy} />
         <CardResumen icon="⚡" label="Competencia"
           valor={resumen?.total_competencia} colorValor={C.red} />
@@ -732,10 +742,10 @@ export default function PanelControl({ empleado }) {
                           <td style={S.td(i)}>{row.categoria}</td>
                           <td style={S.td(i)}>
                             <span style={S.chip(
-                              row.fuente === "LIDER" ? C.white : C.red,
-                              row.fuente === "LIDER" ? C.navy  : C.redLight,
+                              row.fuente === "PROESA" ? C.white : C.red,
+                              row.fuente === "PROESA" ? C.navy  : C.redLight,
                             )}>
-                              {row.fuente === "LIDER" ? "⭐ LÍDER" : "⚡ Comp."}
+                              {row.fuente === "PROESA" ? "🏢 PROESA" : "⚡ Comp."}
                             </span>
                           </td>
                           <td style={S.td(i)}>{row.marca}</td>

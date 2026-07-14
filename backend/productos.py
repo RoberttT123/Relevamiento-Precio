@@ -51,7 +51,7 @@ class ProductoOut(BaseModel):
     categoria_id:     int
     categoria_nombre: str | None = None
     rubro_nombre:     str | None = None
-    fuente:           Literal["LIDER", "COMPETENCIA", "SEGUIDOR"]
+    fuente:           Literal["PROESA", "COMPETENCIA", "SEGUIDOR"]
     marca:            str
     codigo:           str | None
     descripcion:      str
@@ -65,7 +65,7 @@ class ProductoOut(BaseModel):
 
 class ProductoCreate(BaseModel):
     categoria_id:  int
-    fuente:        Literal["LIDER", "COMPETENCIA", "SEGUIDOR"]
+    fuente:        Literal["PROESA", "COMPETENCIA", "SEGUIDOR"]
     marca:         str
     codigo:        str | None = None
     descripcion:   str
@@ -99,6 +99,15 @@ def _enriquecer(prod: dict, cats: dict) -> dict:
         prod["es_lider"] = False
     return prod
 
+def _categorias_asignadas(empleado_id: str) -> set[int]:
+    """IDs de categoría asignadas a este empleado."""
+    resp = (
+        supabase.table("categorias")
+        .select("id")
+        .eq("empleado_id", empleado_id)
+        .execute()
+    )
+    return {row["id"] for row in (resp.data or [])}
 
 def _cargar_categorias() -> dict:
     resp = (
@@ -120,7 +129,7 @@ def _cargar_categorias() -> dict:
 def listar_productos(
     rubro:     str | None = Query(None),
     categoria: str | None = Query(None),
-    fuente:    Literal["LIDER", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
+    fuente:    Literal["PROESA", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
     busqueda:  str | None = Query(None),
     grupo:     str | None = Query(None),
     activo:    bool       = Query(True),
@@ -229,15 +238,24 @@ def editar_producto(
             detail="No se enviaron campos válidos para actualizar.",
         )
 
+# DESPUÉS
     existe = (
         supabase.table("productos")
-        .select("id")
+        .select("id, categoria_id")
         .eq("id", producto_id)
         .single()
         .execute()
     )
     if not existe.data:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
+
+    if empleado.rol != "admin":
+        permitidas = _categorias_asignadas(empleado.id)
+        if existe.data["categoria_id"] not in permitidas:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Esta categoría no está asignada a vos.",
+            )
 
     resp = (
         supabase.table("productos")

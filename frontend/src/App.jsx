@@ -21,10 +21,11 @@
 
 import { useState, useEffect } from "react";
 
-import Login        from "./pages/Login";
-import Productos    from "./pages/Productos";
-import PanelControl from "./pages/PanelControl";
-import Navbar       from "./components/Navbar";
+import Login                 from "./pages/Login";
+import Productos             from "./pages/Productos";
+import PanelControl          from "./pages/PanelControl";
+import AsignacionCategorias  from "./pages/AsignacionCategorias";
+import Navbar                from "./components/Navbar";
 
 const API = import.meta.env.VITE_API_URL ?? "";
 
@@ -161,6 +162,10 @@ export default function App() {
 
       {paginaActual === "panel" && (
         <PanelControl empleado={empleado} />
+      )}
+
+      {paginaActual === "asignaciones" && empleado?.rol === "admin" && (
+        <AsignacionCategorias empleado={empleado} />
       )}
 
     </div>

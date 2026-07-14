@@ -325,18 +325,26 @@ def crear_relevamiento(
 ):
     periodo = _validar_periodo(body.periodo)
 
-    existente = (
+# DESPUÉS
+    LIMITE_MENSUAL = 4
+
+    existentes = (
         supabase.table("relevamientos")
-        .select("id")
+        .select("id", count="exact")
         .eq("periodo", periodo)
         .eq("creado_por", empleado.id)
         .execute()
     )
-    if existente.data:
+    cantidad = existentes.count or 0
+
+    if cantidad >= LIMITE_MENSUAL:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Ya existe un relevamiento para el período {periodo}.",
-        )
+            detail=(
+                f"Ya alcanzaste el límite de {LIMITE_MENSUAL} "
+                f"relevamientos para el período {periodo}."
+            ),
+        )   
 
     nuevo = {
         "periodo":     periodo,
@@ -352,7 +360,35 @@ def crear_relevamiento(
     row = resp.data[0]
     row["nombre_empleado"] = empleado.nombre
     return row
+def _verificar_categoria_permitida(producto_id: str, empleado: EmpleadoOut) -> None:
+    """Admin: sin restricción. Relevador: su categoría debe coincidir."""
+    if empleado.rol == "admin":
+        return
 
+    prod_resp = (
+        supabase.table("productos")
+        .select("categoria_id")
+        .eq("id", producto_id)
+        .single()
+        .execute()
+    )
+    if not prod_resp.data:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+
+    cat_resp = (
+        supabase.table("categorias")
+        .select("empleado_id")
+        .eq("id", prod_resp.data["categoria_id"])
+        .single()
+        .execute()
+    )
+    asignado_a = (cat_resp.data or {}).get("empleado_id")
+
+    if asignado_a != empleado.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta categoría no está asignada a vos.",
+        )
 
 # ─── GET /api/relevamientos ───────────────────────────────────────────────────
 @router.get("", response_model=list[RelevamientoOut])
@@ -489,6 +525,7 @@ def cargar_precio(
             status_code=status.HTTP_409_CONFLICT,
             detail="No se pueden agregar precios a un relevamiento finalizado.",
         )
+    _verificar_categoria_permitida(body.producto_id, empleado)   # ← NUEVO
 
     existente = (
         supabase.table("precios_relevamiento")
@@ -605,6 +642,7 @@ def editar_precio(
 
     precio_actual = precio_resp.data
     producto_id   = precio_actual["producto_id"]
+    _verificar_categoria_permitida(producto_id, empleado)   # ← NUEVO
 
     # ── Calcular index_real automáticamente ───────────────────────────────────
     # Usar el precio_venta_unidad del body si viene, o el que ya estaba guardado
