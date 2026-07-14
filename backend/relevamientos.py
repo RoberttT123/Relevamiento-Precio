@@ -13,6 +13,18 @@ POST   /api/relevamientos/:id/precios            → cargar precio de un product
 PUT    /api/relevamientos/:id/precios/:precio_id → editar precio (dispara historial)
 GET    /api/relevamientos/:id/precios            → listar precios del relevamiento
 
+Límite mensual:
+  Cada empleado puede tener como máximo LIMITE_MENSUAL relevamientos
+  por período (mes). No hay restricción de "uno solo por período":
+  el mismo período puede tener varios relevamientos del mismo empleado
+  (hasta el límite), pensado para cubrir varias rondas de relevamiento
+  en el mes.
+
+Restricción por categoría asignada:
+  Un relevador solo puede cargar/editar precios de productos cuya
+  categoría (categorias.empleado_id) le esté asignada a él. Los admins
+  no tienen esta restricción.
+
 Cálculo automático de index_real:
   Al guardar o editar un precio, el backend busca el líder del grupo
   del producto y calcula:
@@ -43,6 +55,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ─── Router ──────────────────────────────────────────────────────────────────
 router = APIRouter(prefix="/api/relevamientos", tags=["relevamientos"])
+
+# ─── Configuración ────────────────────────────────────────────────────────────
+LIMITE_MENSUAL = 4   # máximo de relevamientos por empleado, por período
 
 
 # ─── Modelos Pydantic ────────────────────────────────────────────────────────
@@ -152,6 +167,38 @@ def _get_relevamiento_o_404(relevamiento_id: str, empleado: EmpleadoOut) -> dict
         )
 
     return relev
+
+
+# ─── Helper: verificar que la categoría del producto está asignada al empleado
+def _verificar_categoria_permitida(producto_id: str, empleado: EmpleadoOut) -> None:
+    """Admin: sin restricción. Relevador: su categoría debe coincidir."""
+    if empleado.rol == "admin":
+        return
+
+    prod_resp = (
+        supabase.table("productos")
+        .select("categoria_id")
+        .eq("id", producto_id)
+        .single()
+        .execute()
+    )
+    if not prod_resp.data:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+
+    cat_resp = (
+        supabase.table("categorias")
+        .select("empleado_id")
+        .eq("id", prod_resp.data["categoria_id"])
+        .single()
+        .execute()
+    )
+    asignado_a = (cat_resp.data or {}).get("empleado_id")
+
+    if asignado_a != empleado.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta categoría no está asignada a vos.",
+        )
 
 
 # ─── Helper: calcular index_real automáticamente ──────────────────────────────
@@ -325,9 +372,6 @@ def crear_relevamiento(
 ):
     periodo = _validar_periodo(body.periodo)
 
-# DESPUÉS
-    LIMITE_MENSUAL = 4
-
     existentes = (
         supabase.table("relevamientos")
         .select("id", count="exact")
@@ -344,7 +388,7 @@ def crear_relevamiento(
                 f"Ya alcanzaste el límite de {LIMITE_MENSUAL} "
                 f"relevamientos para el período {periodo}."
             ),
-        )   
+        )
 
     nuevo = {
         "periodo":     periodo,
@@ -360,35 +404,7 @@ def crear_relevamiento(
     row = resp.data[0]
     row["nombre_empleado"] = empleado.nombre
     return row
-def _verificar_categoria_permitida(producto_id: str, empleado: EmpleadoOut) -> None:
-    """Admin: sin restricción. Relevador: su categoría debe coincidir."""
-    if empleado.rol == "admin":
-        return
 
-    prod_resp = (
-        supabase.table("productos")
-        .select("categoria_id")
-        .eq("id", producto_id)
-        .single()
-        .execute()
-    )
-    if not prod_resp.data:
-        raise HTTPException(status_code=404, detail="Producto no encontrado.")
-
-    cat_resp = (
-        supabase.table("categorias")
-        .select("empleado_id")
-        .eq("id", prod_resp.data["categoria_id"])
-        .single()
-        .execute()
-    )
-    asignado_a = (cat_resp.data or {}).get("empleado_id")
-
-    if asignado_a != empleado.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Esta categoría no está asignada a vos.",
-        )
 
 # ─── GET /api/relevamientos ───────────────────────────────────────────────────
 @router.get("", response_model=list[RelevamientoOut])
@@ -525,7 +541,8 @@ def cargar_precio(
             status_code=status.HTTP_409_CONFLICT,
             detail="No se pueden agregar precios a un relevamiento finalizado.",
         )
-    _verificar_categoria_permitida(body.producto_id, empleado)   # ← NUEVO
+
+    _verificar_categoria_permitida(body.producto_id, empleado)
 
     existente = (
         supabase.table("precios_relevamiento")
@@ -642,7 +659,8 @@ def editar_precio(
 
     precio_actual = precio_resp.data
     producto_id   = precio_actual["producto_id"]
-    _verificar_categoria_permitida(producto_id, empleado)   # ← NUEVO
+
+    _verificar_categoria_permitida(producto_id, empleado)
 
     # ── Calcular index_real automáticamente ───────────────────────────────────
     # Usar el precio_venta_unidad del body si viene, o el que ya estaba guardado

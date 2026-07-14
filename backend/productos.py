@@ -9,6 +9,11 @@ PUT    /api/productos/:id            → editar grameaje, marca, descripción, g
 PUT    /api/productos/:id/lider      → marcar/desmarcar como líder dentro de su grupo
 DELETE /api/productos/:id            → desactivar producto (soft delete, solo admin)
 POST   /api/productos/:id/imagen     → subir imagen a Cloudinary y guardar URL
+
+Restricción por categoría asignada:
+  Cada categoría le pertenece a un único relevador (categorias.empleado_id).
+  Un relevador solo ve y puede editar productos de sus categorías asignadas.
+  Los admins no tienen esta restricción — ven y editan todo.
 """
 
 from __future__ import annotations
@@ -99,15 +104,6 @@ def _enriquecer(prod: dict, cats: dict) -> dict:
         prod["es_lider"] = False
     return prod
 
-def _categorias_asignadas(empleado_id: str) -> set[int]:
-    """IDs de categoría asignadas a este empleado."""
-    resp = (
-        supabase.table("categorias")
-        .select("id")
-        .eq("empleado_id", empleado_id)
-        .execute()
-    )
-    return {row["id"] for row in (resp.data or [])}
 
 def _cargar_categorias() -> dict:
     resp = (
@@ -124,6 +120,17 @@ def _cargar_categorias() -> dict:
     }
 
 
+def _categorias_asignadas(empleado_id: str) -> set[int]:
+    """IDs de categoría asignadas a este empleado."""
+    resp = (
+        supabase.table("categorias")
+        .select("id")
+        .eq("empleado_id", empleado_id)
+        .execute()
+    )
+    return {row["id"] for row in (resp.data or [])}
+
+
 # ─── GET /api/productos ───────────────────────────────────────────────────────
 @router.get("", response_model=list[ProductoOut])
 def listar_productos(
@@ -133,7 +140,7 @@ def listar_productos(
     busqueda:  str | None = Query(None),
     grupo:     str | None = Query(None),
     activo:    bool       = Query(True),
-    _empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
+    empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
 ):
     query = (
         supabase.table("productos")
@@ -148,11 +155,21 @@ def listar_productos(
 
     data = query.execute().data or []
     cats = _cargar_categorias()
+
+    # Relevadores solo ven productos de sus categorías asignadas.
+    # Admin ve todo (queda en None → sin filtro).
+    categorias_permitidas = (
+        _categorias_asignadas(empleado.id) if empleado.rol != "admin" else None
+    )
+
     result = []
 
     for prod in data:
-        cat = cats.get(prod.get("categoria_id"))
+        cat_id = prod.get("categoria_id")
+        cat = cats.get(cat_id)
         if not cat:
+            continue
+        if categorias_permitidas is not None and cat_id not in categorias_permitidas:
             continue
         if rubro    and cat["rubro_nombre"].lower() != rubro.lower():
             continue
@@ -225,6 +242,7 @@ def editar_producto(
     Edita marca, código, descripción, grameaje_ml, unidades_caja y grupo.
     La fuente NO se puede cambiar — queda fija desde la creación.
     Para marcar/desmarcar líder usar PUT /api/productos/:id/lider.
+    Un relevador solo puede editar productos de sus categorías asignadas.
     """
     cambios = body.model_dump(exclude_none=True)
 
@@ -238,7 +256,6 @@ def editar_producto(
             detail="No se enviaron campos válidos para actualizar.",
         )
 
-# DESPUÉS
     existe = (
         supabase.table("productos")
         .select("id, categoria_id")

@@ -15,30 +15,7 @@
 │   ├── productos.py
 │   ├── relevamientos.py
 │   ├── requirements.txt
-│   └── venv
-│       ├── bin
-│       │   ├── activate
-│       │   ├── activate.csh
-│       │   ├── activate.fish
-│       │   ├── Activate.ps1
-│       │   ├── dotenv
-│       │   ├── fastapi
-│       │   ├── httpx
-│       │   ├── idna
-│       │   ├── pip
-│       │   ├── pip3
-│       │   ├── pip3.10
-│       │   ├── python -> python3
-│       │   ├── python3 -> /usr/local/bin/python3
-│       │   ├── python3.10 -> python3
-│       │   ├── uvicorn
-│       │   ├── watchfiles
-│       │   └── websockets
-│       ├── include
-│       ├── lib
-│       │   └── python3.10
-│       └── pyvenv.cfg
-├── database
+
 ├── estructura.txt
 ├── frontend
 │   ├── .DS_Store
@@ -127,4 +104,3 @@
 │   └── vite.config.js
 └── package-lock.json
 
-30 directories, 98 files
