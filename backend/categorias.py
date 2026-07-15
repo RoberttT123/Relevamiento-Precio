@@ -2,12 +2,14 @@
 """
 categorias.py — Asignación de categorías a relevadores
 ---------------------------------------------------------
-GET /api/categorias                → lista categorías con rubro y relevador asignado (admin)
-PUT /api/categorias/:id/asignar    → asigna o desasigna un relevador a una categoría (admin)
+GET /api/categorias                → lista categorías con rubro y relevadores asignados (admin)
+PUT /api/categorias/:id/asignar    → reemplaza el conjunto de relevadores de una categoría (admin)
 
-Cada categoría le pertenece a un único relevador (asignación exclusiva).
-Los productos de una categoría sin asignar no son visibles para ningún
-relevador (solo para admin), hasta que se les asigne alguien.
+Una categoría puede estar asignada a varios relevadores a la vez
+(asignación compartida, no exclusiva) — vía la tabla categoria_relevadores.
+Los productos de una categoría sin ningún relevador asignado no son
+visibles para ningún relevador (solo para admin), hasta que se le
+asigne al menos uno.
 """
 
 from __future__ import annotations
@@ -32,17 +34,21 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 router = APIRouter(prefix="/api/categorias", tags=["categorias"])
 
 
+class EmpleadoMini(BaseModel):
+    id:     str
+    nombre: str
+
+
 class CategoriaOut(BaseModel):
-    id:              int
-    nombre:          str
-    rubro_id:        int
-    rubro_nombre:    str | None = None
-    empleado_id:     str | None = None
-    empleado_nombre: str | None = None
+    id:           int
+    nombre:       str
+    rubro_id:     int
+    rubro_nombre: str | None = None
+    empleados:    list[EmpleadoMini] = []   # relevadores asignados (puede ser varios)
 
 
 class AsignarBody(BaseModel):
-    empleado_id: str | None = None   # None = desasignar
+    empleado_ids: list[str] = []   # conjunto completo deseado; reemplaza el anterior
 
 
 def _verificar_admin(empleado: EmpleadoOut) -> None:
@@ -53,23 +59,28 @@ def _verificar_admin(empleado: EmpleadoOut) -> None:
         )
 
 
+def _fila_a_categoria(row: dict) -> dict:
+    rubro = row.pop("rubros", None)
+    crs   = row.pop("categoria_relevadores", None) or []
+    row["rubro_nombre"] = rubro["nombre"] if rubro else None
+    row["empleados"]    = [cr["empleados"] for cr in crs if cr.get("empleados")]
+    return row
+
+
 def _traer_categoria(categoria_id: int) -> dict:
     resp = (
         supabase.table("categorias")
-        .select("id, nombre, rubro_id, empleado_id, rubros(nombre), empleados(nombre)")
+        .select(
+            "id, nombre, rubro_id, rubros(nombre), "
+            "categoria_relevadores(empleados(id, nombre))"
+        )
         .eq("id", categoria_id)
         .single()
         .execute()
     )
     if not resp.data:
         raise HTTPException(status_code=404, detail="Categoría no encontrada.")
-
-    row   = resp.data
-    rubro = row.pop("rubros", None)
-    emp   = row.pop("empleados", None)
-    row["rubro_nombre"]    = rubro["nombre"] if rubro else None
-    row["empleado_nombre"] = emp["nombre"]   if emp   else None
-    return row
+    return _fila_a_categoria(resp.data)
 
 
 # ─── GET /api/categorias ──────────────────────────────────────────────────────
@@ -81,20 +92,15 @@ def listar_categorias(
 
     resp = (
         supabase.table("categorias")
-        .select("id, nombre, rubro_id, empleado_id, rubros(nombre), empleados(nombre)")
+        .select(
+            "id, nombre, rubro_id, rubros(nombre), "
+            "categoria_relevadores(empleados(id, nombre))"
+        )
         .order("nombre")
         .execute()
     )
 
-    result = []
-    for row in resp.data or []:
-        rubro = row.pop("rubros", None)
-        emp   = row.pop("empleados", None)
-        row["rubro_nombre"]    = rubro["nombre"] if rubro else None
-        row["empleado_nombre"] = emp["nombre"]   if emp   else None
-        result.append(row)
-
-    return result
+    return [_fila_a_categoria(row) for row in (resp.data or [])]
 
 
 # ─── PUT /api/categorias/:id/asignar ──────────────────────────────────────────
@@ -104,27 +110,43 @@ def asignar_categoria(
     body: AsignarBody,
     empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)],
 ):
+    """
+    Reemplaza el conjunto completo de relevadores asignados a esta
+    categoría por los IDs recibidos en `empleado_ids`. Enviá una lista
+    vacía para dejarla sin asignar, o varios IDs para compartirla entre
+    más de un relevador.
+    """
     _verificar_admin(empleado)
-    _traer_categoria(categoria_id)  # 404 si no existe
+    _traer_categoria(categoria_id)  # 404 si la categoría no existe
 
-    if body.empleado_id:
+    ids_unicos = list(dict.fromkeys(body.empleado_ids))  # sin duplicados, preserva orden
+
+    if ids_unicos:
         emp_resp = (
             supabase.table("empleados")
             .select("id, activo")
-            .eq("id", body.empleado_id)
-            .single()
+            .in_("id", ids_unicos)
             .execute()
         )
-        if not emp_resp.data:
-            raise HTTPException(status_code=404, detail="Empleado no encontrado.")
-        if not emp_resp.data.get("activo", False):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="No se puede asignar un empleado inactivo.",
-            )
+        encontrados = {row["id"]: row for row in (emp_resp.data or [])}
+        for emp_id in ids_unicos:
+            emp = encontrados.get(emp_id)
+            if not emp:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Empleado {emp_id} no encontrado.",
+                )
+            if not emp.get("activo", False):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="No se puede asignar un empleado inactivo.",
+                )
 
-    supabase.table("categorias").update(
-        {"empleado_id": body.empleado_id}
-    ).eq("id", categoria_id).execute()
+    # Reemplazar el conjunto completo: borrar asignaciones actuales, insertar las nuevas
+    supabase.table("categoria_relevadores").delete().eq("categoria_id", categoria_id).execute()
+
+    if ids_unicos:
+        nuevas = [{"categoria_id": categoria_id, "empleado_id": eid} for eid in ids_unicos]
+        supabase.table("categoria_relevadores").insert(nuevas).execute()
 
     return _traer_categoria(categoria_id)

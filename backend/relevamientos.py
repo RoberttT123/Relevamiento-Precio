@@ -22,8 +22,9 @@ Límite mensual:
 
 Restricción por categoría asignada:
   Un relevador solo puede cargar/editar precios de productos cuya
-  categoría (categorias.empleado_id) le esté asignada a él. Los admins
-  no tienen esta restricción.
+  categoría le esté asignada a él (tabla categoria_relevadores). Una
+  misma categoría puede estar asignada a varios relevadores a la vez.
+  Los admins no tienen esta restricción.
 
 Cálculo automático de index_real:
   Al guardar o editar un precio, el backend busca el líder del grupo
@@ -171,7 +172,11 @@ def _get_relevamiento_o_404(relevamiento_id: str, empleado: EmpleadoOut) -> dict
 
 # ─── Helper: verificar que la categoría del producto está asignada al empleado
 def _verificar_categoria_permitida(producto_id: str, empleado: EmpleadoOut) -> None:
-    """Admin: sin restricción. Relevador: su categoría debe coincidir."""
+    """
+    Admin: sin restricción. Relevador: la categoría del producto debe
+    estar entre las suyas (una categoría puede estar asignada a varios
+    relevadores a la vez, vía la tabla categoria_relevadores).
+    """
     if empleado.rol == "admin":
         return
 
@@ -185,16 +190,15 @@ def _verificar_categoria_permitida(producto_id: str, empleado: EmpleadoOut) -> N
     if not prod_resp.data:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
 
-    cat_resp = (
-        supabase.table("categorias")
+    asignacion_resp = (
+        supabase.table("categoria_relevadores")
         .select("empleado_id")
-        .eq("id", prod_resp.data["categoria_id"])
-        .single()
+        .eq("categoria_id", prod_resp.data["categoria_id"])
+        .eq("empleado_id", empleado.id)
         .execute()
     )
-    asignado_a = (cat_resp.data or {}).get("empleado_id")
 
-    if asignado_a != empleado.id:
+    if not asignacion_resp.data:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Esta categoría no está asignada a vos.",

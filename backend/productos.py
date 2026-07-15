@@ -11,9 +11,12 @@ DELETE /api/productos/:id            → desactivar producto (soft delete, solo 
 POST   /api/productos/:id/imagen     → subir imagen a Cloudinary y guardar URL
 
 Restricción por categoría asignada:
-  Cada categoría le pertenece a un único relevador (categorias.empleado_id).
-  Un relevador solo ve y puede editar productos de sus categorías asignadas.
-  Los admins no tienen esta restricción — ven y editan todo.
+  Una categoría puede estar asignada a varios relevadores a la vez
+  (tabla categoria_relevadores — asignación compartida, no exclusiva).
+  Un relevador solo ve y puede editar productos de sus categorías asignadas,
+  y solo dentro de esas categorías puede elegir el líder del grupo
+  (PUT /api/productos/:id/lider). Los admins no tienen esta restricción
+  — ven, editan y eligen el líder de todo.
 """
 
 from __future__ import annotations
@@ -121,14 +124,18 @@ def _cargar_categorias() -> dict:
 
 
 def _categorias_asignadas(empleado_id: str) -> set[int]:
-    """IDs de categoría asignadas a este empleado."""
+    """
+    IDs de categoría asignadas a este empleado.
+    Una categoría puede estar asignada a varios relevadores a la vez
+    (asignación compartida, vía la tabla categoria_relevadores).
+    """
     resp = (
-        supabase.table("categorias")
-        .select("id")
+        supabase.table("categoria_relevadores")
+        .select("categoria_id")
         .eq("empleado_id", empleado_id)
         .execute()
     )
-    return {row["id"] for row in (resp.data or [])}
+    return {row["categoria_id"] for row in (resp.data or [])}
 
 
 # ─── GET /api/productos ───────────────────────────────────────────────────────
@@ -297,22 +304,21 @@ def toggle_lider(
     """
     Marca este producto como líder de su grupo y desmarca al anterior líder.
     Si el producto ya era líder, lo desmarca (toggle).
-    Solo admins pueden hacer esto.
 
-    Lógica corregida:
+    Permisos: admins sin restricción. Relevadores también pueden elegir
+    el líder, pero solo dentro de productos cuya categoría les esté
+    asignada (una categoría puede estar asignada a varios relevadores).
+
+    Lógica:
     1. Obtener el producto con su categoría.
-    2. Si no tiene grupo, asignar la categoría como grupo
+    2. Si no es admin, verificar que la categoría del producto le esté
+       asignada a este relevador.
+    3. Si no tiene grupo, asignar la categoría como grupo
        Y asignar ese mismo grupo a todos los productos de la misma categoría
        que tampoco tengan grupo — así el UPDATE de desmarcar los alcanza a todos.
-    3. Si ya es líder → desmarcar solo este.
-    4. Si no era líder → desmarcar TODOS del grupo → marcar este.
+    4. Si ya es líder → desmarcar solo este.
+    5. Si no era líder → desmarcar TODOS del grupo → marcar este.
     """
-    if empleado.rol != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo los administradores pueden cambiar el líder.",
-        )
-
     # 1. Obtener producto actual con su categoría
     prod_resp = (
         supabase.table("productos")
@@ -324,7 +330,17 @@ def toggle_lider(
     if not prod_resp.data:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
 
-    prod  = prod_resp.data
+    prod = prod_resp.data
+
+    # 2. Relevadores solo pueden tocar el líder de sus categorías asignadas
+    if empleado.rol != "admin":
+        permitidas = _categorias_asignadas(empleado.id)
+        if prod.get("categoria_id") not in permitidas:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Esta categoría no está asignada a vos.",
+            )
+
     grupo = prod.get("grupo")
 
     # 2. Si no tiene grupo, derivarlo de la categoría

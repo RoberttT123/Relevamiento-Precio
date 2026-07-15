@@ -270,7 +270,7 @@ export default function FilaProducto({
   // ── Toggle líder ─────────────────────────────────────────────────────────
   async function handleToggleLider(e) {
     e.stopPropagation();
-    if (!esAdmin || loadingLider) return;
+    if (loadingLider) return;
 
     setLoadingLider(true);
     try {
@@ -510,8 +510,8 @@ export default function FilaProducto({
             </span>
           )}
 
-          {/* Botón toggle líder — solo admins, se ve en la fila resumen */}
-          {esAdmin && !bloqueado && (
+          {/* Botón toggle líder — admins y relevadores, se ve en la fila resumen */}
+          {!bloqueado && (
             <button
               onClick={handleToggleLider}
               disabled={loadingLider}
@@ -747,33 +747,33 @@ export default function FilaProducto({
             onChange={handleImagen}
           />
 
-          {/* Toggle líder — dentro del form expandido, más fácil de encontrar */}
-          {esAdmin && (
-            <button
-              onClick={handleToggleLider}
-              disabled={loadingLider}
-              type="button"
-              style={{
-                width: "100%", height: "44px",
-                background: esLider ? "#FFF8E1" : C.white,
-                border: `2px solid ${esLider ? C.gold : C.gray200}`,
-                borderRadius: "10px",
-                fontSize: "13.5px", fontWeight: 700,
-                color: esLider ? C.gold : C.gray400,
-                cursor: loadingLider ? "wait" : "pointer",
-                display: "flex", alignItems: "center",
-                justifyContent: "center", gap: "8px",
-                transition: "all 0.15s",
-                WebkitTapHighlightColor: "transparent",
-              }}
-            >
-              {loadingLider
-                ? "Guardando…"
-                : esLider
-                  ? "⭐ Este producto es el LÍDER del grupo — tocar para desmarcar"
-                  : "☆ Marcar como LÍDER de este grupo"}
-            </button>
-          )}
+          {/* Toggle líder — dentro del form expandido, más fácil de encontrar.
+              Disponible para admins y relevadores (ya estamos dentro de un
+              bloque gateado por !bloqueado más arriba). */}
+          <button
+            onClick={handleToggleLider}
+            disabled={loadingLider}
+            type="button"
+            style={{
+              width: "100%", height: "44px",
+              background: esLider ? "#FFF8E1" : C.white,
+              border: `2px solid ${esLider ? C.gold : C.gray200}`,
+              borderRadius: "10px",
+              fontSize: "13.5px", fontWeight: 700,
+              color: esLider ? C.gold : C.gray400,
+              cursor: loadingLider ? "wait" : "pointer",
+              display: "flex", alignItems: "center",
+              justifyContent: "center", gap: "8px",
+              transition: "all 0.15s",
+              WebkitTapHighlightColor: "transparent",
+            }}
+          >
+            {loadingLider
+              ? "Guardando…"
+              : esLider
+                ? "⭐ Este producto es el LÍDER del grupo — tocar para desmarcar"
+                : "☆ Marcar como LÍDER de este grupo"}
+          </button>
 
           {/* Guardar */}
           <button
