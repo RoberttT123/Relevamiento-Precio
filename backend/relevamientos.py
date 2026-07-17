@@ -26,12 +26,13 @@ Restricción por categoría asignada:
   misma categoría puede estar asignada a varios relevadores a la vez.
   Los admins no tienen esta restricción.
 
-Cálculo automático de index_real:
-  Al guardar o editar un precio, el backend busca el líder del grupo
-  del producto y calcula:
-    index_real = precio_venta_unidad_lider / precio_venta_unidad_producto × 100
+Cálculo automático de precio_por_gr_ml e index_real:
+  Al guardar o editar un precio, el backend calcula:
+    precio_por_gr_ml = precio_venta_unidad ÷ grameaje_ml
+  y con eso busca el líder del grupo del producto y calcula:
+    index_real = precio_por_gr_ml_producto / precio_por_gr_ml_lider × 100
   Si el producto ES el líder, index_real = 100.
-  Si no hay líder con precio cargado en este período, index_real = None.
+  Si no hay líder con precio_por_gr_ml cargado en este período, index_real = None.
 """
 
 from __future__ import annotations
@@ -84,7 +85,7 @@ class PrecioCreate(BaseModel):
     precio_venta_caja:    float | None = None
     precio_compra_unidad: float | None = None
     precio_venta_unidad:  float | None = None
-    precio_por_gr_ml:     float | None = None
+    precio_por_gr_ml:     float | None = None   # se calcula automáticamente
     index_real:           float | None = None   # se calcula automáticamente
     index_marca:          float | None = None   # ingresado manualmente
 
@@ -110,7 +111,7 @@ class PrecioUpdate(BaseModel):
     precio_venta_caja:    float | None = None
     precio_compra_unidad: float | None = None
     precio_venta_unidad:  float | None = None
-    precio_por_gr_ml:     float | None = None
+    precio_por_gr_ml:     float | None = None   # se recalcula automáticamente
     index_real:           float | None = None   # se recalcula automáticamente
     index_marca:          float | None = None   # ingresado manualmente
 
@@ -205,26 +206,45 @@ def _verificar_categoria_permitida(producto_id: str, empleado: EmpleadoOut) -> N
         )
 
 
+# ─── Helper: calcular precio_por_gr_ml automáticamente ───────────────────────
+def _calcular_precio_por_gr_ml(
+    precio_venta_unidad: float | None,
+    grameaje_ml: float | None,
+) -> float | None:
+    """
+    precio_por_gr_ml = precio_venta_unidad ÷ grameaje_ml.
+    Devuelve None si falta cualquiera de los dos datos o si grameaje_ml es 0.
+    Es la base del index_real: normaliza el precio de venta unidad por el
+    tamaño real del producto, para poder comparar productos de distinto
+    gramaje/mililitraje en igualdad de condiciones.
+    """
+    if not precio_venta_unidad or not grameaje_ml:
+        return None
+    return round(precio_venta_unidad / grameaje_ml, 6)
+
+
 # ─── Helper: calcular index_real automáticamente ──────────────────────────────
 def _calcular_index_real(
     producto_id: str,
-    precio_venta_unidad_actual: float | None,
+    precio_por_gr_ml_actual: float | None,
     periodo: str,
 ) -> float | None:
     """
     Busca el líder del grupo del producto y calcula:
-      index_real = precio_venta_unidad_lider / precio_venta_unidad_producto × 100
+      index_real = precio_por_gr_ml_producto / precio_por_gr_ml_lider × 100
 
     - Si el producto ES el líder → devuelve 100.0
-    - Si no hay líder con precio cargado en este período → devuelve None.
-    - Si precio_venta_unidad_actual es None o 0 → devuelve None.
+    - Si no hay líder con precio_por_gr_ml cargado en este período → None.
+    - Si precio_por_gr_ml_actual es None o 0 → devuelve None.
 
-    La fórmula refleja qué tan caro es el producto respecto al líder:
-      - index_real < 100: el producto es más barato que el líder
-      - index_real = 100: el producto tiene el mismo precio que el líder
-      - index_real > 100: el producto es más caro que el líder
+    La fórmula refleja qué tan caro es el producto respecto al líder,
+    normalizado por gramaje/mililitraje (Precio x Gr/ML), no por precio
+    de unidad crudo:
+      - index_real < 100: el producto es más barato por gr/ml que el líder
+      - index_real = 100: el producto cuesta lo mismo por gr/ml que el líder
+      - index_real > 100: el producto es más caro por gr/ml que el líder
     """
-    if not precio_venta_unidad_actual or precio_venta_unidad_actual == 0:
+    if not precio_por_gr_ml_actual or precio_por_gr_ml_actual == 0:
         return None
 
     # Obtener datos del producto (grupo, es_lider)
@@ -263,27 +283,27 @@ def _calcular_index_real(
 
     lider_id = lideres[0]["id"]
 
-    # Buscar el precio del líder en el mismo período
+    # Buscar el precio_por_gr_ml del líder en el mismo período
     # Para eso necesitamos el relevamiento del mismo período que tenga precio del líder
     precio_lider_resp = (
         supabase.table("precios_relevamiento")
-        .select("precio_venta_unidad, relevamiento_id, relevamientos(periodo)")
+        .select("precio_por_gr_ml, relevamiento_id, relevamientos(periodo)")
         .eq("producto_id", lider_id)
         .execute()
     )
 
-    precio_lider = None
+    precio_gr_ml_lider = None
     for pr in (precio_lider_resp.data or []):
         rel = pr.get("relevamientos") or {}
         if rel.get("periodo") == periodo:
-            precio_lider = pr.get("precio_venta_unidad")
+            precio_gr_ml_lider = pr.get("precio_por_gr_ml")
             break
 
-    if not precio_lider or precio_lider == 0:
+    if not precio_gr_ml_lider or precio_gr_ml_lider == 0:
         return None
 
-    # Calcular Price Index
-    index = round((precio_lider / precio_venta_unidad_actual) * 100, 2)
+    # Calcular Price Index: producto ÷ líder × 100
+    index = round((precio_por_gr_ml_actual / precio_gr_ml_lider) * 100, 2)
     return index
 
 
@@ -291,7 +311,8 @@ def _calcular_index_real(
 def _recalcular_grupo(grupo: str, periodo: str) -> None:
     """
     Cuando se guarda el precio del líder, recalcula el index_real
-    de todos los demás productos del mismo grupo en este período.
+    de todos los demás productos del mismo grupo en este período,
+    en base al precio_por_gr_ml que cada uno ya tiene guardado.
     Así los retadores que ya tenían precio cargado se actualizan.
     """
     if not grupo:
@@ -314,7 +335,7 @@ def _recalcular_grupo(grupo: str, periodo: str) -> None:
     for prod in productos:
         precio_resp = (
             supabase.table("precios_relevamiento")
-            .select("id, precio_venta_unidad, relevamientos(periodo)")
+            .select("id, precio_por_gr_ml, relevamientos(periodo)")
             .eq("producto_id", prod["id"])
             .execute()
         )
@@ -324,7 +345,7 @@ def _recalcular_grupo(grupo: str, periodo: str) -> None:
                 continue
             nuevo_index = _calcular_index_real(
                 prod["id"],
-                pr.get("precio_venta_unidad"),
+                pr.get("precio_por_gr_ml"),
                 periodo,
             )
             if nuevo_index is not None:
@@ -561,14 +582,30 @@ def cargar_precio(
             detail="Ya existe un precio para este producto. Usá PUT para editarlo.",
         )
 
+    # ── Obtener grameaje/grupo/es_lider del producto para los cálculos ─────────
+    prod_info = (
+        supabase.table("productos")
+        .select("grameaje_ml, grupo, es_lider")
+        .eq("id", body.producto_id)
+        .single()
+        .execute()
+    ).data or {}
+
     nuevo = body.model_dump(exclude_none=True)
     nuevo["relevamiento_id"] = relevamiento_id
 
-    # ── Calcular index_real automáticamente ───────────────────────────────────
+    # ── Calcular precio_por_gr_ml automáticamente ──────────────────────────────
+    precio_por_gr_ml = _calcular_precio_por_gr_ml(
+        body.precio_venta_unidad, prod_info.get("grameaje_ml")
+    )
+    if precio_por_gr_ml is not None:
+        nuevo["precio_por_gr_ml"] = precio_por_gr_ml
+
+    # ── Calcular index_real automáticamente (en base a Precio x Gr/ML) ─────────
     index_real = _calcular_index_real(
-        producto_id                = body.producto_id,
-        precio_venta_unidad_actual = body.precio_venta_unidad,
-        periodo                    = relev["periodo"],
+        producto_id             = body.producto_id,
+        precio_por_gr_ml_actual = precio_por_gr_ml,
+        periodo                 = relev["periodo"],
     )
     if index_real is not None:
         nuevo["index_real"] = index_real
@@ -581,14 +618,6 @@ def cargar_precio(
     precio = resp.data[0]
 
     # ── Si este producto es el líder, recalcular índices del grupo ────────────
-    prod_info = (
-        supabase.table("productos")
-        .select("grupo, es_lider")
-        .eq("id", body.producto_id)
-        .single()
-        .execute()
-    ).data or {}
-
     if prod_info.get("es_lider") and prod_info.get("grupo"):
         _recalcular_grupo(prod_info["grupo"], relev["periodo"])
 
@@ -666,15 +695,31 @@ def editar_precio(
 
     _verificar_categoria_permitida(producto_id, empleado)
 
-    # ── Calcular index_real automáticamente ───────────────────────────────────
+    # ── Obtener grameaje/grupo/es_lider del producto para los cálculos ─────────
+    prod_info = (
+        supabase.table("productos")
+        .select("grameaje_ml, grupo, es_lider")
+        .eq("id", producto_id)
+        .single()
+        .execute()
+    ).data or {}
+
+    # ── Calcular precio_por_gr_ml automáticamente ──────────────────────────────
     # Usar el precio_venta_unidad del body si viene, o el que ya estaba guardado
     precio_unidad_nuevo = cambios.get("precio_venta_unidad") or \
                          precio_actual.get("precio_venta_unidad")
 
+    precio_por_gr_ml = _calcular_precio_por_gr_ml(
+        precio_unidad_nuevo, prod_info.get("grameaje_ml")
+    )
+    if precio_por_gr_ml is not None:
+        cambios["precio_por_gr_ml"] = precio_por_gr_ml
+
+    # ── Calcular index_real automáticamente (en base a Precio x Gr/ML) ─────────
     index_real = _calcular_index_real(
-        producto_id                = producto_id,
-        precio_venta_unidad_actual = precio_unidad_nuevo,
-        periodo                    = relev["periodo"],
+        producto_id             = producto_id,
+        precio_por_gr_ml_actual = precio_por_gr_ml,
+        periodo                 = relev["periodo"],
     )
     if index_real is not None:
         cambios["index_real"] = index_real
@@ -683,14 +728,6 @@ def editar_precio(
     _ejecutar_con_historial(empleado.id, precio_id, cambios)
 
     # ── Si este producto es el líder, recalcular índices del grupo ────────────
-    prod_info = (
-        supabase.table("productos")
-        .select("grupo, es_lider")
-        .eq("id", producto_id)
-        .single()
-        .execute()
-    ).data or {}
-
     if prod_info.get("es_lider") and prod_info.get("grupo"):
         _recalcular_grupo(prod_info["grupo"], relev["periodo"])
 

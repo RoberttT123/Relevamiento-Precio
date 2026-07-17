@@ -17,7 +17,8 @@
  *   bloqueado       boolean (relevamiento finalizado)
  *   onGuardado      (precioActualizado) => void
  *   onProductoActualizado (productoActualizado) => void  — para reflejar cambios de líder/grupo
- *   precioLider     number | null — precio_venta_unidad del líder del mismo grupo
+ *   precioLider     number | null — Precio x Gr/ML del líder del mismo grupo
+ *                   (precio_venta_unidad ÷ grameaje_ml del líder)
  */
 
 import { useState, useRef } from "react";
@@ -57,14 +58,15 @@ function bgMargen(pct) {
   return C.redLight;
 }
 
-// Price Index: precio_unidad_lider / precio_unidad_competidor × 100
-// Si el competidor es más caro que el líder → pasa el 100%
-function calcPriceIndex(precioUnidadProducto, precioUnidadLider) {
-  if (!precioUnidadProducto || !precioUnidadLider) return null;
-  const p = parseFloat(precioUnidadProducto);
-  const l = parseFloat(precioUnidadLider);
-  if (isNaN(p) || isNaN(l) || p === 0) return null;
-  return Math.round((l / p) * 10000) / 100;
+// Price Index: (Precio x Gr/ML del producto ÷ Precio x Gr/ML del líder) × 100
+// Misma base y misma dirección que el index_real que calcula el backend.
+// Si el producto es más caro por gr/ml que el líder → pasa el 100%
+function calcPriceIndex(precioGrMlProducto, precioGrMlLider) {
+  if (!precioGrMlProducto || !precioGrMlLider) return null;
+  const p = parseFloat(precioGrMlProducto);
+  const l = parseFloat(precioGrMlLider);
+  if (isNaN(p) || isNaN(l) || l === 0) return null;
+  return Math.round((p / l) * 10000) / 100;
 }
 
 function colorPriceIndex(pi) {
@@ -255,11 +257,17 @@ export default function FilaProducto({
   })();
 
   // ── Price Index calculado en tiempo real ─────────────────────────────────
-  // Usa el precio de unidad del producto actual (editado o guardado)
-  // y el precio de unidad del líder del grupo que viene de Productos.jsx
-  const precioUnidadActual = parseFloat(valores.precio_venta_unidad) ||
+  // Compara el Precio x Gr/ML del producto actual (precio_venta_unidad
+  // editado o guardado ÷ grameaje_ml editado o guardado) contra el
+  // Precio x Gr/ML del líder del grupo, que viene de Productos.jsx —
+  // misma base que usa el backend para calcular index_real.
+  const precioVentaUnidadActual = parseFloat(valores.precio_venta_unidad) ||
     parseFloat(precioActual?.precio_venta_unidad) || null;
-  const priceIndex = esLider ? 100 : calcPriceIndex(precioUnidadActual, precioLider);
+  const gramajeActual = parseFloat(valores.grameaje_ml) || null;
+  const precioGrMlActual = (precioVentaUnidadActual && gramajeActual)
+    ? precioVentaUnidadActual / gramajeActual
+    : null;
+  const priceIndex = esLider ? 100 : calcPriceIndex(precioGrMlActual, precioLider);
 
   function handleChange(campo, valor) {
     setValores(v => ({ ...v, [campo]: valor }));

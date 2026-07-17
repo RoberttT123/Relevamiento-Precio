@@ -228,16 +228,21 @@ function CategoriaAcordeon({
   const total      = productos.length;
   const finalizado = relevamiento?.estado === "finalizado";
 
-  // ── Calcular precio de unidad del líder por grupo ─────────────────────────
+  // ── Calcular Precio x Gr/ML del líder por grupo ───────────────────────────
   // Para cada grupo dentro de esta categoría, encontramos el producto
-  // marcado como es_lider y usamos su precio_venta_unidad como referencia.
-  // Si hay productos sin grupo o sin líder, precioLider[grupo] queda undefined.
+  // marcado como es_lider y usamos su Precio x Gr/ML (precio_venta_unidad
+  // ÷ grameaje_ml) como referencia — así el Price Index en pantalla queda
+  // calculado con la misma base que el index_real que guarda el backend.
+  // Si hay productos sin grupo, sin líder, o al líder le falta grameaje,
+  // precioLiderPorGrupo[grupo] queda undefined.
   const precioLiderPorGrupo = {};
   productos.forEach(prod => {
     if (prod.es_lider && prod.grupo) {
-      const precio = precios[prod.id];
-      if (precio?.precio_venta_unidad) {
-        precioLiderPorGrupo[prod.grupo] = parseFloat(precio.precio_venta_unidad);
+      const precio   = precios[prod.id];
+      const gramaje  = parseFloat(prod.grameaje_ml);
+      const precioUd = parseFloat(precio?.precio_venta_unidad);
+      if (precioUd && gramaje) {
+        precioLiderPorGrupo[prod.grupo] = precioUd / gramaje;
       }
     }
   });
