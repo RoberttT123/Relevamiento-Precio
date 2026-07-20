@@ -9,7 +9,7 @@
  *
  * Props:
  *   empleado      { id, nombre, rol, codigo_empleado }
- *   paginaActual  "relevamiento" | "panel" | "asignaciones"
+ *   paginaActual  "relevamiento" | "panel" | "asignaciones" | "catalogo"
  *   onNavegar     (pagina) => void
  *   onLogout      () => void
  */
@@ -53,6 +53,7 @@ const TABS = [
   { id: "relevamiento", label: "Relevamiento",     icon: "📋" },
   { id: "panel",        label: "Panel de control",  icon: "📊" },
   { id: "asignaciones", label: "Asignaciones",      icon: "🗂️", adminOnly: true },
+  { id: "catalogo",     label: "Catálogo",          icon: "📦", adminOnly: true },
 ];
 
 // ─── Iconos SVG simples (consistentes, sin depender del set de emojis) ───────

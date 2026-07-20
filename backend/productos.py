@@ -5,10 +5,14 @@ productos.py — Rutas de productos
 GET    /api/productos                → lista productos con filtros opcionales
 GET    /api/productos/:id            → detalle de un producto
 POST   /api/productos                → crear producto nuevo (solo admin)
-PUT    /api/productos/:id            → editar grameaje, marca, descripción, grupo
+PUT    /api/productos/:id            → editar categoría*, grameaje, marca, descripción, grupo
 PUT    /api/productos/:id/lider      → marcar/desmarcar como líder dentro de su grupo
 DELETE /api/productos/:id            → desactivar producto (soft delete, solo admin)
+PUT    /api/productos/:id/reactivar  → reactivar producto desactivado (solo admin)
 POST   /api/productos/:id/imagen     → subir imagen a Cloudinary y guardar URL
+
+  * Reasignar la categoría (categoria_id) es exclusivo de admin — un
+    relevador que lo mande en el body lo ve ignorado en silencio.
 
 Restricción por categoría asignada:
   Una categoría puede estar asignada a varios relevadores a la vez
@@ -84,6 +88,7 @@ class ProductoCreate(BaseModel):
 
 class ProductoUpdate(BaseModel):
     # fuente NO está aquí — es inmutable una vez creado el producto
+    categoria_id:  int | None = None   # solo admin puede reasignar la categoría
     marca:         str | None = None
     codigo:        str | None = None
     descripcion:   str | None = None
@@ -246,16 +251,23 @@ def editar_producto(
     empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)],
 ):
     """
-    Edita marca, código, descripción, grameaje_ml, unidades_caja y grupo.
-    La fuente NO se puede cambiar — queda fija desde la creación.
+    Edita categoría, marca, código, descripción, grameaje_ml, unidades_caja
+    y grupo. La fuente NO se puede cambiar — queda fija desde la creación.
     Para marcar/desmarcar líder usar PUT /api/productos/:id/lider.
-    Un relevador solo puede editar productos de sus categorías asignadas.
+
+    Un relevador solo puede editar productos de sus categorías asignadas,
+    y no puede reasignar la categoría de un producto (eso es exclusivo
+    de admin) aunque lo mande en el body.
     """
     cambios = body.model_dump(exclude_none=True)
 
     # Doble seguridad: ignorar fuente y es_lider aunque vengan en el body
     cambios.pop("fuente",   None)
     cambios.pop("es_lider", None)
+
+    # Reasignar categoría es exclusivo de admin
+    if empleado.rol != "admin":
+        cambios.pop("categoria_id", None)
 
     if not cambios:
         raise HTTPException(
@@ -279,6 +291,20 @@ def editar_producto(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Esta categoría no está asignada a vos.",
+            )
+
+    if "categoria_id" in cambios:
+        cat_resp = (
+            supabase.table("categorias")
+            .select("id")
+            .eq("id", cambios["categoria_id"])
+            .single()
+            .execute()
+        )
+        if not cat_resp.data:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="La categoría indicada no existe.",
             )
 
     resp = (
@@ -424,6 +450,33 @@ def desactivar_producto(
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
 
     return {"mensaje": "Producto desactivado correctamente."}
+
+
+# ─── PUT /api/productos/:id/reactivar ─────────────────────────────────────────
+@router.put("/{producto_id}/reactivar", response_model=ProductoOut)
+def reactivar_producto(
+    producto_id: str,
+    empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)],
+):
+    """Vuelve a activar un producto desactivado (activo=True). Solo admins."""
+    if empleado.rol != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden reactivar productos.",
+        )
+
+    resp = (
+        supabase.table("productos")
+        .update({"activo": True})
+        .eq("id", producto_id)
+        .execute()
+    )
+
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+
+    cats = _cargar_categorias()
+    return _enriquecer(resp.data[0], cats)
 
 
 # ─── POST /api/productos/:id/imagen ──────────────────────────────────────────

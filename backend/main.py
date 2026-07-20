@@ -18,6 +18,7 @@ from productos     import router as productos_router
 from relevamientos import router as relevamientos_router
 from historial     import router as historial_router
 from categorias    import router as categorias_router
+from rubros        import router as rubros_router
 
 app = FastAPI(
     title="Relevamiento de Precios — PROESA",
@@ -39,6 +40,7 @@ app.include_router(productos_router)
 app.include_router(relevamientos_router)
 app.include_router(historial_router)
 app.include_router(categorias_router)
+app.include_router(rubros_router)
 
 
 @app.get("/")

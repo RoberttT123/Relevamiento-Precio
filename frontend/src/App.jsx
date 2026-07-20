@@ -8,6 +8,7 @@
  *   · Productos (relevamiento)
  *   · Panel de control (históricos)
  *   · Asignación de categorías (solo admin)
+ *   · Catálogo — alta/edición/borrado de productos y categorías (solo admin)
  *
  * No usa react-router — el routing es por estado
  * simple dado que son pocas páginas post-login.
@@ -26,6 +27,7 @@ import Login                 from "./pages/Login";
 import Productos             from "./pages/Productos";
 import PanelControl          from "./pages/PanelControl";
 import AsignacionCategorias  from "./pages/AsignacionCategorias";
+import GestionCatalogo       from "./pages/GestionCatalogo";
 import Navbar                from "./components/Navbar";
 
 const API = import.meta.env.VITE_API_URL ?? "";
@@ -167,6 +169,10 @@ export default function App() {
 
       {paginaActual === "asignaciones" && empleado?.rol === "admin" && (
         <AsignacionCategorias empleado={empleado} />
+      )}
+
+      {paginaActual === "catalogo" && empleado?.rol === "admin" && (
+        <GestionCatalogo empleado={empleado} />
       )}
 
     </div>

@@ -595,7 +595,7 @@ export default function Login({ onLoginSuccess }) {
 
               <p style={S.helpText}>
                 ¿Olvidaste tu código?{" "}
-                <a href="mailto:admin@proesa.com" style={S.helpLink}>
+                <a href="israeltinini2@gmail.com" style={S.helpLink}>
                   Contactá al administrador
                 </a>
               </p>
