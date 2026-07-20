@@ -335,13 +335,25 @@ export default function FilaProducto({
                      Authorization: `Bearer ${token}` },
           body: JSON.stringify(cambiosProducto),
         });
-        if (r.ok && onProductoActualizado) {
-          const prodActualizado = await r.json();
-          onProductoActualizado(prodActualizado);
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail ?? "Error al guardar los datos del producto.");
         }
+        const prodActualizado = await r.json();
+        if (onProductoActualizado) onProductoActualizado(prodActualizado);
       }
 
-      if (Object.keys(cambiosPrecios).length > 0 && relevamientoId) {
+      if (Object.keys(cambiosPrecios).length > 0) {
+        // Sin un relevamiento activo no hay dónde guardar el precio.
+        // Antes esto se salteaba en silencio y de todas formas mostraba
+        // "✓ Guardado" — ahora avisa en vez de fingir que se guardó.
+        if (!relevamientoId) {
+          throw new Error(
+            "No hay un relevamiento activo para guardar el precio. " +
+            "Recargá la página — si el problema sigue, avisale al administrador."
+          );
+        }
+
         const url  = tienePrecio
           ? `${API}/api/relevamientos/${relevamientoId}/precios/${precioActual.id}`
           : `${API}/api/relevamientos/${relevamientoId}/precios`;
@@ -354,7 +366,7 @@ export default function FilaProducto({
             : { producto_id: producto.id, ...cambiosPrecios }),
         });
         if (!resp.ok) {
-          const err = await resp.json();
+          const err = await resp.json().catch(() => ({}));
           throw new Error(err.detail ?? "Error al guardar.");
         }
         const data = await resp.json();

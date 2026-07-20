@@ -313,6 +313,7 @@ export default function Productos({ empleado }) {
   const [loadingProds, setLoadingProds] = useState(true);
   const [loadingRelev, setLoadingRelev] = useState(true);
   const [error,        setError]        = useState(null);
+  const [errorRelev,   setErrorRelev]   = useState(null);
 
   // ── Cargar productos ──────────────────────────────────────────────────────
   const cargarProductos = useCallback(async () => {
@@ -347,6 +348,7 @@ export default function Productos({ empleado }) {
   //      desde el banner si necesita seguir cargando precios.
   const cargarRelevamiento = useCallback(async () => {
     setLoadingRelev(true);
+    setErrorRelev(null);
     try {
       const ahora  = new Date();
       const periodo = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`;
@@ -355,6 +357,10 @@ export default function Productos({ empleado }) {
         `${API}/api/relevamientos?periodo=${periodo}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail ?? "Error al cargar el relevamiento del mes.");
+      }
       // Viene ordenada por created_at desc → lista[0] es la más reciente
       const lista = await resp.json();
 
@@ -373,13 +379,21 @@ export default function Productos({ empleado }) {
         if (crear.ok) {
           const nuevo = await crear.json();
           setRelevamiento(nuevo);
+        } else {
+          const err = await crear.json().catch(() => ({}));
+          throw new Error(err.detail ?? "No se pudo crear el relevamiento del mes.");
         }
       } else {
         const ultimo = lista[0] ?? null;
         setRelevamiento(ultimo);
         if (ultimo) cargarPrecios(ultimo.id);
       }
-    } catch (_) {
+    } catch (e) {
+      // Antes esto quedaba en silencio: relevamiento se quedaba en null,
+      // no aparecía ningún banner, y como bloqueado también daba false
+      // (relevamiento null), se podía seguir "guardando" sin que nada se
+      // persistiera de verdad. Ahora se avisa explícitamente.
+      setErrorRelev(e.message ?? "Error al cargar el relevamiento del mes.");
     } finally {
       setLoadingRelev(false);
     }
@@ -564,6 +578,30 @@ export default function Productos({ empleado }) {
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Error de relevamiento: sin esto no hay dónde guardar los precios ── */}
+      {!loadingRelev && !relevamiento && errorRelev && (
+        <div style={{
+          margin: "10px 1rem 0", padding: "10px 14px",
+          background: "#FFF5F5", borderLeft: `4px solid ${C.red}`,
+          borderRadius: "0 8px 8px 0", fontSize: "13px", color: "#C0303B",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          flexWrap: "wrap", gap: "8px",
+        }}>
+          <span>⚠ {errorRelev} — sin esto no se puede guardar ningún precio.</span>
+          <button
+            type="button"
+            onClick={cargarRelevamiento}
+            style={{
+              background: C.red, color: C.white, border: "none",
+              borderRadius: "6px", padding: "5px 12px", fontSize: "12px",
+              fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+            }}
+          >
+            Reintentar
+          </button>
         </div>
       )}
 
