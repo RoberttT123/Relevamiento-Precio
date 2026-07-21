@@ -338,14 +338,17 @@ export default function Productos({ empleado }) {
   }, [rubroActivo, fuenteFiltro, busqueda, token]);
 
   // ── Cargar o crear relevamiento del mes ───────────────────────────────────
-  // Un mismo empleado puede tener hasta LIMITE_MENSUAL relevamientos en el
-  // mismo período. Regla de entrada a la pantalla:
-  //   1. Si hay un relevamiento en borrador este mes → seguimos con ese.
-  //   2. Si no hay borrador pero todavía queda cupo (< LIMITE_MENSUAL)
-  //      → creamos uno nuevo automáticamente.
-  //   3. Si ya se llegó al límite (todos finalizados) → mostramos el más
-  //      reciente en modo lectura; el usuario puede "Reabrir" ese mismo
-  //      desde el banner si necesita seguir cargando precios.
+  // Un mismo empleado puede tener hasta LIMITE_MENSUAL relevamientos
+  // FINALIZADOS en el mismo período — un borrador abierto no gasta cupo,
+  // tenga o no precios cargados. Regla de entrada a la pantalla:
+  //   1. Si hay un relevamiento en borrador este mes → seguimos con ese
+  //      (no cuenta contra el límite mientras siga en borrador).
+  //   2. Si no hay borrador y todavía quedan menos de LIMITE_MENSUAL
+  //      finalizados → creamos uno nuevo automáticamente.
+  //   3. Si ya se finalizaron LIMITE_MENSUAL → mostramos el más reciente
+  //      en modo lectura; el usuario puede "Reabrir" ese mismo desde el
+  //      banner si necesita seguir cargando precios (reabrir tampoco
+  //      gasta un cupo nuevo, sigue siendo el mismo relevamiento).
   const cargarRelevamiento = useCallback(async () => {
     setLoadingRelev(true);
     setErrorRelev(null);
@@ -365,11 +368,13 @@ export default function Productos({ empleado }) {
       const lista = await resp.json();
 
       const enBorrador = lista.find(r => r.estado === "borrador");
+      // Solo los finalizados gastan cupo — igual que en el backend.
+      const finalizados = lista.filter(r => r.estado === "finalizado").length;
 
       if (enBorrador) {
         setRelevamiento(enBorrador);
         cargarPrecios(enBorrador.id);
-      } else if (lista.length < LIMITE_MENSUAL) {
+      } else if (finalizados < LIMITE_MENSUAL) {
         const crear = await fetch(`${API}/api/relevamientos`, {
           method: "POST",
           headers: { "Content-Type": "application/json",

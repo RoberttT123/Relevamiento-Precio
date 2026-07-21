@@ -15,10 +15,11 @@ GET    /api/relevamientos/:id/precios            → listar precios del relevami
 
 Límite mensual:
   Cada empleado puede tener como máximo LIMITE_MENSUAL relevamientos
-  por período (mes). No hay restricción de "uno solo por período":
-  el mismo período puede tener varios relevamientos del mismo empleado
-  (hasta el límite), pensado para cubrir varias rondas de relevamiento
-  en el mes.
+  FINALIZADOS por período (mes). Un borrador abierto no gasta cupo —
+  tenga o no precios cargados — hasta que se finaliza; recién ahí se
+  consume uno de los LIMITE_MENSUAL. Esto permite abrir la pantalla,
+  cargar precios, o dejar un borrador sin tocar, sin que eso cuente
+  como un intento usado.
 
 Restricción por categoría asignada:
   Un relevador solo puede cargar/editar precios de productos cuya
@@ -397,11 +398,16 @@ def crear_relevamiento(
 ):
     periodo = _validar_periodo(body.periodo)
 
+    # Solo cuentan los YA FINALIZADOS. Un borrador abierto (tenga o no
+    # precios cargados) no gasta cupo — el cupo se consume recién en el
+    # momento de finalizar. Así, abrir la pantalla o cargar precios sin
+    # cerrar el relevamiento nunca cuenta como un intento usado.
     existentes = (
         supabase.table("relevamientos")
         .select("id", count="exact")
         .eq("periodo", periodo)
         .eq("creado_por", empleado.id)
+        .eq("estado", "finalizado")
         .execute()
     )
     cantidad = existentes.count or 0
