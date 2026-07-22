@@ -428,7 +428,18 @@ def crear_relevamiento(
         "estado":      "borrador",
     }
 
-    resp = supabase.table("relevamientos").insert(nuevo).execute()
+    try:
+        resp = supabase.table("relevamientos").insert(nuevo).execute()
+    except Exception as e:
+        # Sin este try/except, un error de base de datos no manejado
+        # (ej. un constraint viejo que ya no debería existir) se cae sin
+        # armar bien la respuesta HTTP, y el navegador lo termina
+        # mostrando como "Failed to fetch" en vez del error real.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al crear el relevamiento: {e}",
+        )
+
     if not resp.data:
         raise HTTPException(status_code=500, detail="Error al crear el relevamiento.")
 
