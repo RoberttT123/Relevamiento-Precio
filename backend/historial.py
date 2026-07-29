@@ -184,19 +184,47 @@ def listar_historial(
     return result
 
 
+# ─── Helper: validar formato YYYY-MM-DD ──────────────────────────────────────
+def _validar_fecha(fecha: str) -> str:
+    import re
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", fecha):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='La fecha debe tener el formato YYYY-MM-DD. Ej: "2026-07-20".',
+        )
+    return fecha
+
+
 # ─── GET /api/historial/panel ────────────────────────────────────────────────
 @router.get("/panel", response_model=list[PanelRow])
 def panel_control(
-    periodo:   str | None = Query(None),
-    rubro:     str | None = Query(None),
-    categoria: str | None = Query(None),
-    fuente:    Literal["PROESA", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
+    periodo:     str | None = Query(None),
+    fecha_desde: str | None = Query(None, description="YYYY-MM-DD, inclusive. Filtra por ultima_edicion."),
+    fecha_hasta: str | None = Query(None, description="YYYY-MM-DD, inclusive. Filtra por ultima_edicion."),
+    rubro:       str | None = Query(None),
+    categoria:   str | None = Query(None),
+    fuente:      Literal["PROESA", "COMPETENCIA", "SEGUIDOR"] | None = Query(None),
     empleado: Annotated[EmpleadoOut, Depends(get_empleado_actual)] = None,
 ):
+    """
+    periodo filtra por mes (YYYY-MM, columna `periodo`).
+    fecha_desde/fecha_hasta filtran por día real (columna `ultima_edicion`,
+    que es el updated_at del precio) — a diferencia de periodo, esto puede
+    cruzar meses (ej. del 28 de junio al 3 de julio). Se pueden combinar
+    los tres, o usar solo uno.
+    """
     query = supabase.table("vista_panel_control").select("*")
 
     if periodo:
         query = query.eq("periodo", periodo)
+    if fecha_desde:
+        _validar_fecha(fecha_desde)
+        query = query.gte("ultima_edicion", fecha_desde)
+    if fecha_hasta:
+        _validar_fecha(fecha_hasta)
+        # lte con solo la fecha (sin hora) truncaría a las 00:00 de ese día,
+        # dejando afuera el resto del día — le sumamos el final del día.
+        query = query.lte("ultima_edicion", f"{fecha_hasta}T23:59:59.999")
     if rubro:
         query = query.ilike("rubro", f"%{rubro}%")
     if categoria:

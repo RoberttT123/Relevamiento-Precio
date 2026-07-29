@@ -146,6 +146,11 @@ const S = {
     transition: "background 0.15s",
     WebkitTapHighlightColor: "transparent",
   }),
+  bannerContador: {
+    fontSize: "11.5px", fontWeight: 700, color: C.navy,
+    background: C.white, border: `1px solid ${C.border}`,
+    padding: "3px 10px", borderRadius: "20px", whiteSpace: "nowrap",
+  },
 
   // ── Acordeón de categoría ─────────────────────────────────────────────────
   categoriaWrap: {
@@ -310,6 +315,7 @@ export default function Productos({ empleado }) {
   const [productos,    setProductos]    = useState([]);
   const [precios,      setPrecios]      = useState({});
   const [relevamiento, setRelevamiento] = useState(null);
+  const [finalizadosDelMes, setFinalizadosDelMes] = useState(0);
   const [loadingProds, setLoadingProds] = useState(true);
   const [loadingRelev, setLoadingRelev] = useState(true);
   const [error,        setError]        = useState(null);
@@ -370,6 +376,7 @@ export default function Productos({ empleado }) {
       const enBorrador = lista.find(r => r.estado === "borrador");
       // Solo los finalizados gastan cupo — igual que en el backend.
       const finalizados = lista.filter(r => r.estado === "finalizado").length;
+      setFinalizadosDelMes(finalizados);
 
       if (enBorrador) {
         setRelevamiento(enBorrador);
@@ -427,7 +434,10 @@ export default function Productos({ empleado }) {
         `${API}/api/relevamientos/${relevamiento.id}/finalizar`,
         { method: "PUT", headers: { Authorization: `Bearer ${token}` } }
       );
-      if (resp.ok) setRelevamiento(await resp.json());
+      if (resp.ok) {
+        setRelevamiento(await resp.json());
+        setFinalizadosDelMes(n => n + 1);
+      }
     } catch (_) {}
   }
 
@@ -440,7 +450,10 @@ export default function Productos({ empleado }) {
         `${API}/api/relevamientos/${relevamiento.id}/reabrir`,
         { method: "PUT", headers: { Authorization: `Bearer ${token}` } }
       );
-      if (resp.ok) setRelevamiento(await resp.json());
+      if (resp.ok) {
+        setRelevamiento(await resp.json());
+        setFinalizadosDelMes(n => Math.max(0, n - 1));
+      }
     } catch (_) {}
   }
 
@@ -559,7 +572,10 @@ export default function Productos({ empleado }) {
                 : `${periodoLabel} — ${totalCargados}/${totalProductos} cargados`}
             </span>
           </div>
-          <div style={{ display: "flex", gap: "8px" }}>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <span style={S.bannerContador} title="Relevamientos finalizados este mes">
+              📋 {finalizadosDelMes}/{LIMITE_MENSUAL}
+            </span>
             {!finalizado && (
               <button
                 style={S.bannerBtn(hoverFinal, "red")}

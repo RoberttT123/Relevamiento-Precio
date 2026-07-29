@@ -4,6 +4,7 @@
  * --------------------------------------------------
  * Cards de resumen del período
  * Gráfico de evolución de precios por mes
+ * Gráfico de indexación por categoría (línea vertical con nodos por Index Real)
  * Tabla histórica filtrable por período / rubro / fuente / categoría
  *   → En mobile (<860px) se muestra como acordeones por categoría.
  *   → En desktop (≥860px) se muestra como tabla completa.
@@ -11,10 +12,14 @@
  *
  * Props:
  *   empleado  { id, nombre, rol, codigo_empleado }
+ *
+ * Dependencia nueva — instalar antes de correr:
+ *   npm install html2canvas
  */
 
-import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react";
 import * as XLSX from "xlsx";
+import html2canvas from "html2canvas";
 import GraficoEvolucion from "../components/GraficoEvolucion";
 
 // ─── Tokens PROESA ────────────────────────────────────────────────────────────
@@ -229,6 +234,107 @@ const S = {
     transform: expandido ? "rotate(180deg)" : "rotate(0deg)",
     transition: "transform 0.2s", lineHeight: 1, flexShrink: 0,
   }),
+
+  // ── Modal de exportación ─────────────────────────────────────────────────
+  modalOverlay: {
+    position: "fixed", inset: 0, background: "rgba(26,26,46,0.45)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "1rem", zIndex: 300,
+  },
+  modalBox: {
+    width: "100%", maxWidth: "360px", background: C.white,
+    borderRadius: "14px", padding: "20px",
+    boxShadow: "0 12px 32px rgba(0,0,0,0.22)",
+  },
+  modalTitulo: { fontSize: "15px", fontWeight: 700, color: C.navy, marginBottom: "14px" },
+  modalLabel: {
+    fontSize: "11px", fontWeight: 600, color: C.gray400,
+    letterSpacing: "0.4px", textTransform: "uppercase", marginBottom: "6px",
+  },
+  modalSelect: {
+    width: "100%", height: "42px", boxSizing: "border-box",
+    padding: "0 28px 0 12px", border: `1px solid ${C.border}`, borderRadius: "8px",
+    fontSize: "14px", color: C.navy, background: C.gray50, outline: "none",
+    fontFamily: "inherit", appearance: "none",
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+    backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center",
+    WebkitAppearance: "none",
+  },
+  modalDateInput: {
+    width: "100%", height: "42px", boxSizing: "border-box",
+    padding: "0 12px", border: `1px solid ${C.border}`, borderRadius: "8px",
+    fontSize: "14px", color: C.navy, background: C.gray50, outline: "none",
+    fontFamily: "inherit",
+  },
+  modalSub: { fontSize: "11.5px", color: C.gray400, marginTop: "8px", lineHeight: 1.4 },
+  modalError: {
+    marginTop: "10px", padding: "8px 10px", background: "#FFF5F5",
+    borderLeft: `3px solid ${C.red}`, borderRadius: "0 6px 6px 0",
+    fontSize: "12px", color: "#C0303B",
+  },
+  modalBotones: { display: "flex", gap: "8px", marginTop: "18px" },
+  modalBtnCancelar: {
+    flex: 1, height: "40px", background: C.gray100, color: C.gray600,
+    border: "none", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+    cursor: "pointer", WebkitTapHighlightColor: "transparent",
+  },
+  modalBtnConfirmar: {
+    flex: 1, height: "40px", background: C.green, color: C.white,
+    border: "none", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+    cursor: "pointer", display: "flex", alignItems: "center",
+    justifyContent: "center", gap: "6px",
+    WebkitTapHighlightColor: "transparent",
+  },
+
+  // ── Gráfico de indexación ─────────────────────────────────────────────────
+  indexChartWrap: { background: C.white, padding: "22px 20px", minWidth: "560px" },
+  indexChartTitleBox: {
+    display: "inline-block", border: `2px dashed ${C.green}`, borderRadius: "6px",
+    padding: "9px 22px", color: C.green, fontWeight: 800, fontSize: "15px",
+    letterSpacing: "0.4px", marginBottom: "22px", marginLeft: "58px",
+    whiteSpace: "nowrap",
+  },
+  indexChartBody: { display: "flex", flexDirection: "column" },
+  indexFila: { display: "flex", alignItems: "stretch", minHeight: "104px" },
+  indexEjeCol: {
+    width: "34px", display: "flex", flexDirection: "column",
+    alignItems: "center", flexShrink: 0,
+  },
+  indexLineaSeg: { flex: 1, width: "3px", background: C.green },
+  indexNodoPunto: {
+    width: "15px", height: "15px", borderRadius: "50%",
+    background: C.green, border: `3px solid ${C.white}`,
+    boxShadow: `0 0 0 2px ${C.green}`, flexShrink: 0, margin: "3px 0",
+  },
+  indexPct: {
+    width: "48px", display: "flex", alignItems: "center",
+    fontWeight: 800, fontSize: "13.5px", color: C.navy, flexShrink: 0,
+  },
+  indexProductosFila: {
+    display: "flex", flexWrap: "nowrap", gap: "16px",
+    alignItems: "center", padding: "8px 0",
+  },
+  indexTarjeta: {
+    display: "flex", gap: "9px", alignItems: "center",
+    minWidth: "210px", flexShrink: 0,
+  },
+  indexTarjetaImg: {
+    width: "52px", height: "52px", borderRadius: "8px",
+    background: C.gray100, display: "flex", alignItems: "center",
+    justifyContent: "center", overflow: "hidden", flexShrink: 0,
+    border: `1px solid ${C.gray200}`,
+  },
+  indexTarjetaInfo: { display: "flex", flexDirection: "column", gap: "1px" },
+  indexBadgeLider: {
+    fontSize: "9px", fontWeight: 700, color: "#8A5A00",
+    background: "rgba(233,168,37,0.18)", padding: "1px 6px",
+    borderRadius: "20px", width: "fit-content", marginBottom: "2px",
+  },
+  indexTarjetaNombre: {
+    fontSize: "12px", fontWeight: 700, color: C.navy, lineHeight: 1.25,
+    maxWidth: "150px",
+  },
+  indexTarjetaPrecio: { fontSize: "11px", color: C.gray600 },
 };
 
 // ─── CSS responsive ────────────────────────────────────────────────────────────
@@ -324,6 +430,55 @@ function ProductoCard({ row }) {
   );
 }
 
+// ─── Gráfico de indexación ─────────────────────────────────────────────────
+// Eje vertical verde: el líder queda en 100% arriba, y desciende un nodo
+// por cada nivel distinto de Index Real presente en la categoría. De cada
+// nodo se despliegan hacia la derecha los productos con ese % exacto,
+// uno al lado del otro si hay más de uno en el mismo nivel. La altura de
+// la línea es puramente CSS (cada fila aporta su propio segmento arriba/
+// abajo del punto), no hace falta medir nada con JS.
+function GraficoIndexacion({ categoria, nodos }) {
+  return (
+    <div style={S.indexChartWrap}>
+      <div style={S.indexChartTitleBox}>INDEX {categoria.toUpperCase()}</div>
+      <div style={S.indexChartBody}>
+        {nodos.map((nodo, i) => (
+          <div key={nodo.pct} style={S.indexFila}>
+            <div style={S.indexEjeCol}>
+              {i > 0 && <div style={S.indexLineaSeg} />}
+              <div style={S.indexNodoPunto} />
+              {i < nodos.length - 1 && <div style={S.indexLineaSeg} />}
+            </div>
+            <div style={S.indexPct}>{nodo.pct}%</div>
+            <div style={S.indexProductosFila}>
+              {nodo.productos.map(p => (
+                <div key={`${p.descripcion}|${p.marca}`} style={S.indexTarjeta}>
+                  <div style={S.indexTarjetaImg}>
+                    {p.imagen_url
+                      ? <img src={p.imagen_url} alt="" crossOrigin="anonymous"
+                          style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                      : <span style={{ fontSize: "18px" }}>🖼️</span>}
+                  </div>
+                  <div style={S.indexTarjetaInfo}>
+                    {nodo.pct === 100 && <span style={S.indexBadgeLider}>⭐ Líder</span>}
+                    <div style={S.indexTarjetaNombre}>{p.descripcion}</div>
+                    <div style={S.indexTarjetaPrecio}>
+                      PVP&nbsp;<b>Bs {p.precio_compra_unidad != null ? p.precio_compra_unidad.toFixed(2) : "—"}</b>
+                    </div>
+                    <div style={S.indexTarjetaPrecio}>
+                      x Und.&nbsp;<b>Bs {p.margen_unidad_bs != null ? p.margen_unidad_bs.toFixed(2) : "—"}</b>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function PanelControl({ empleado }) {
   const token    = localStorage.getItem("token") ?? "";
@@ -342,11 +497,29 @@ export default function PanelControl({ empleado }) {
   const [loadEvol,         setLoadEvol]         = useState(false);
   const [errorEvol,        setErrorEvol]        = useState(null);
 
+  // ── Gráfico de indexación ─────────────────────────────────────────────────
+  const [categoriaIndex,   setCategoriaIndex]   = useState("");
+  const [indexData,        setIndexData]        = useState([]);
+  const [loadIndex,        setLoadIndex]        = useState(false);
+  const [errorIndex,       setErrorIndex]       = useState(null);
+  const [descargandoIndex, setDescargandoIndex] = useState(false);
+  const indexChartRef = useRef(null);
+
   // ── Datos del panel ───────────────────────────────────────────────────────
   const [resumen,   setResumen]   = useState(null);
   const [panelData, setPanelData] = useState([]);
   const [loadRes,   setLoadRes]   = useState(true);
   const [loadPanel, setLoadPanel] = useState(true);
+
+  // ── Modal de exportación (elegir período, día o rango a exportar) ────────
+  const [exportModalAbierto, setExportModalAbierto] = useState(false);
+  const [exportModo,         setExportModo]         = useState("mes"); // "mes" | "dia" | "rango"
+  const [exportPeriodo,      setExportPeriodo]      = useState(periodoActual());
+  const [exportFechaDia,     setExportFechaDia]     = useState("");
+  const [exportFechaDesde,   setExportFechaDesde]   = useState("");
+  const [exportFechaHasta,   setExportFechaHasta]   = useState("");
+  const [exportLoading,      setExportLoading]      = useState(false);
+  const [exportError,        setExportError]        = useState(null);
 
   // ── Cargar resumen ────────────────────────────────────────────────────────
   const cargarResumen = useCallback(async () => {
@@ -405,6 +578,61 @@ export default function PanelControl({ empleado }) {
     } finally { setLoadEvol(false); }
   }
 
+  // ── Cargar gráfico de indexación ──────────────────────────────────────────
+  // A propósito NO aplica fuenteSel: este gráfico necesita ver al líder
+  // (normalmente PROESA) junto con todos sus retadores a la vez para que
+  // la comparación tenga sentido — si el filtro de arriba estuviera puesto
+  // en "Solo Competencia", el líder desaparecería y el 100% de referencia
+  // se perdería.
+  async function cargarIndex() {
+    if (!categoriaIndex.trim()) return;
+    setLoadIndex(true);
+    setErrorIndex(null);
+    try {
+      const params = new URLSearchParams({ periodo: periodoSel, categoria: categoriaIndex });
+      const resp = await fetch(
+        `${API}/api/historial/panel?${params}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!resp.ok) throw new Error("Error al cargar los datos de indexación.");
+      const data = await resp.json();
+      const conIndex = data.filter(r => r.index_real != null);
+      if (conIndex.length === 0) {
+        setErrorIndex("Ningún producto de esta categoría tiene Index Real cargado en este período.");
+        setIndexData([]);
+        return;
+      }
+      setIndexData(conIndex);
+    } catch (e) {
+      setErrorIndex(e.message ?? "Error al cargar el gráfico.");
+      setIndexData([]);
+    } finally {
+      setLoadIndex(false);
+    }
+  }
+
+  // ── Descargar el gráfico de indexación como imagen ────────────────────────
+  async function handleDescargarIndex() {
+    if (!indexChartRef.current) return;
+    setDescargandoIndex(true);
+    try {
+      const canvas = await html2canvas(indexChartRef.current, {
+        backgroundColor: "#ffffff",
+        scale: 2,
+        useCORS: true,
+      });
+      const link = document.createElement("a");
+      const nombre = categoriaIndex.trim().replace(/\s+/g, "_");
+      link.download = `index_${nombre}_${periodoSel}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (_) {
+      setErrorIndex("No se pudo generar la imagen para descargar. Probá de nuevo.");
+    } finally {
+      setDescargandoIndex(false);
+    }
+  }
+
   // Pre-llenar categoría del gráfico cuando se filtra la tabla por categoría
   useEffect(() => {
     if (categoriaSel && categoriaSel !== categoriaGrafico)
@@ -419,6 +647,22 @@ export default function PanelControl({ empleado }) {
     const set = new Set(panelData.map(r => r.categoria || "Sin categoría"));
     return Array.from(set).sort();
   }, [panelData]);
+
+  // Agrupa por nivel de Index Real (redondeado al entero más cercano, para
+  // que 57.6% y 58.4% se traten como "el mismo nodo" de 58%), ordenado
+  // descendente — el líder (100%) siempre queda arriba de todo.
+  const nodosIndex = useMemo(() => {
+    const grupos = {};
+    indexData.forEach(r => {
+      const pct = Math.round(r.index_real);
+      if (!grupos[pct]) grupos[pct] = [];
+      grupos[pct].push(r);
+    });
+    return Object.keys(grupos)
+      .map(Number)
+      .sort((a, b) => b - a)
+      .map(pct => ({ pct, productos: grupos[pct] }));
+  }, [indexData]);
 
   const panelDataFiltrado = useMemo(() => {
     if (!categoriaSel) return panelData;
@@ -481,7 +725,10 @@ export default function PanelControl({ empleado }) {
 
     const hoja  = XLSX.utils.json_to_sheet(rows, { header: HEADERS });
     const libro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(libro, hoja, `Relevamiento ${periodo}`);
+    // Excel no permite nombres de hoja de más de 31 caracteres (ni / \ ? * [ ] :) —
+    // con un rango de fechas el label puede pasarse, así que lo recortamos.
+    const nombreHoja = `Relevamiento ${periodo}`.replace(/[\\/?*[\]:]/g, "-").slice(0, 31);
+    XLSX.utils.book_append_sheet(libro, hoja, nombreHoja);
 
     // Ancho de columnas automático
     const colWidths = HEADERS.map(h => ({
@@ -493,6 +740,100 @@ export default function PanelControl({ empleado }) {
     hoja["!cols"] = colWidths;
 
     XLSX.writeFile(libro, `relevamiento_${periodo}.xlsx`);
+  }
+
+  // ── Abrir el modal de exportación ─────────────────────────────────────────
+  function handleAbrirExport() {
+    const hoy = new Date().toISOString().slice(0, 10);
+    setExportPeriodo(periodoSel);
+    setExportModo("mes");
+    setExportFechaDia(hoy);
+    setExportFechaDesde(hoy);
+    setExportFechaHasta(hoy);
+    setExportError(null);
+    setExportModalAbierto(true);
+  }
+
+  // ── Confirmar exportación con lo elegido en el modal ─────────────────────
+  async function handleConfirmarExport() {
+    setExportError(null);
+
+    if (exportModo === "dia" && !exportFechaDia) {
+      setExportError("Elegí una fecha.");
+      return;
+    }
+    if (exportModo === "rango") {
+      if (!exportFechaDesde || !exportFechaHasta) {
+        setExportError("Elegí fecha desde y hasta.");
+        return;
+      }
+      if (exportFechaDesde > exportFechaHasta) {
+        setExportError("La fecha 'desde' no puede ser posterior a 'hasta'.");
+        return;
+      }
+    }
+
+    setExportLoading(true);
+    try {
+      let filas;
+      let etiqueta;
+
+      if (exportModo === "mes") {
+        if (exportPeriodo === periodoSel) {
+          // Es el mismo período que ya está cargado en pantalla: reusar,
+          // sin pegarle otra vez a la API.
+          filas = panelDataFiltrado;
+        } else {
+          const params = new URLSearchParams({ periodo: exportPeriodo });
+          if (rubroSel)  params.set("rubro",  rubroSel);
+          if (fuenteSel) params.set("fuente", fuenteSel);
+          const resp = await fetch(`${API}/api/historial/panel?${params}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          filas = resp.ok ? await resp.json() : [];
+          if (categoriaSel) {
+            filas = filas.filter(r => (r.categoria || "Sin categoría") === categoriaSel);
+          }
+        }
+        etiqueta = exportPeriodo;
+      } else {
+        // "dia" o "rango": puede cruzar meses, así que siempre se pide
+        // fresco al servidor filtrando por la fecha real de edición,
+        // no por panelData (que solo tiene el mes elegido arriba).
+        const desde = exportModo === "dia" ? exportFechaDia : exportFechaDesde;
+        const hasta = exportModo === "dia" ? exportFechaDia : exportFechaHasta;
+
+        const params = new URLSearchParams({ fecha_desde: desde, fecha_hasta: hasta });
+        if (rubroSel)  params.set("rubro",  rubroSel);
+        if (fuenteSel) params.set("fuente", fuenteSel);
+        const resp = await fetch(`${API}/api/historial/panel?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail ?? "Error al traer los datos para exportar.");
+        }
+        filas = await resp.json();
+        if (categoriaSel) {
+          filas = filas.filter(r => (r.categoria || "Sin categoría") === categoriaSel);
+        }
+        etiqueta = desde === hasta
+          ? desde
+          : `${desde.replaceAll("-", "")}_${hasta.replaceAll("-", "")}`;
+      }
+
+      if (filas.length === 0) {
+        setExportError("Sin datos para ese filtro.");
+        return;
+      }
+
+      exportarXLSX(filas, etiqueta);
+      setExportModalAbierto(false);
+    } catch (e) {
+      setExportError(e.message ?? "Error al exportar. Probá de nuevo.");
+    } finally {
+      setExportLoading(false);
+    }
   }
 
   // ── Card de resumen ───────────────────────────────────────────────────────
@@ -651,6 +992,77 @@ export default function PanelControl({ empleado }) {
         )}
       </div>
 
+      {/* ── Gráfico de indexación ────────────────────────────────────── */}
+      <div style={S.seccion}>
+        <div style={S.seccionHeader}>
+          <div style={S.seccionTitulo}>🎯 Gráfico de indexación</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", width: "100%" }}>
+            <select
+              value={categoriaIndex}
+              onChange={e => setCategoriaIndex(e.target.value)}
+              style={{ ...S.select(!!categoriaIndex), flex: "1 1 140px" }}
+            >
+              <option value="">Elegí una categoría…</option>
+              {categoriasDisponibles.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            </select>
+            <button
+              onClick={cargarIndex}
+              disabled={!categoriaIndex || loadIndex}
+              type="button"
+              style={{
+                height: "36px", padding: "0 16px",
+                background: !categoriaIndex ? C.gray100 : C.green,
+                color: !categoriaIndex ? C.gray400 : C.white,
+                border: "none", borderRadius: "7px",
+                fontSize: "13px", fontWeight: 600,
+                cursor: !categoriaIndex || loadIndex ? "not-allowed" : "pointer",
+                transition: "background 0.15s", whiteSpace: "nowrap", flexShrink: 0,
+              }}
+            >
+              {loadIndex ? "Cargando…" : "Graficar"}
+            </button>
+            {nodosIndex.length > 0 && (
+              <button
+                onClick={handleDescargarIndex}
+                disabled={descargandoIndex}
+                type="button"
+                style={{
+                  height: "36px", padding: "0 16px",
+                  background: C.navy, color: C.white,
+                  border: "none", borderRadius: "7px",
+                  fontSize: "13px", fontWeight: 600,
+                  cursor: descargandoIndex ? "wait" : "pointer",
+                  whiteSpace: "nowrap", flexShrink: 0,
+                }}
+              >
+                {descargandoIndex ? "Generando…" : "↓ Descargar imagen"}
+              </button>
+            )}
+          </div>
+        </div>
+        {loadIndex ? (
+          <div style={S.estadoCenter}><span>⏳ Cargando datos…</span></div>
+        ) : errorIndex ? (
+          <div style={S.estadoCenter}>
+            <span style={{ fontSize: "26px" }}>🎯</span>
+            <span style={{ fontSize: "13px", color: C.gray400 }}>{errorIndex}</span>
+          </div>
+        ) : nodosIndex.length > 0 ? (
+          <div style={{ overflowX: "auto" }}>
+            <div ref={indexChartRef}>
+              <GraficoIndexacion categoria={categoriaIndex} nodos={nodosIndex} />
+            </div>
+          </div>
+        ) : (
+          <div style={S.estadoCenter}>
+            <span style={{ fontSize: "28px" }}>🎯</span>
+            <span style={{ fontSize: "13px", color: C.gray400 }}>
+              Elegí una categoría y presioná Graficar para ver el índice de precios de esta categoría.
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* ── Detalle histórico ────────────────────────────────────────── */}
       <div style={{ ...S.seccion, margin: "1rem 1rem 1.5rem" }}>
         <div style={S.seccionHeader}>
@@ -663,7 +1075,7 @@ export default function PanelControl({ empleado }) {
             </span>
             {!loadPanel && panelDataFiltrado.length > 0 && (
               <button
-                onClick={() => exportarXLSX(panelDataFiltrado, periodoSel)}
+                onClick={handleAbrirExport}
                 type="button"
                 style={{
                   display: "flex", alignItems: "center", gap: "5px",
@@ -787,6 +1199,112 @@ export default function PanelControl({ empleado }) {
           </>
         )}
       </div>
+
+      {/* ── Modal: elegir período a exportar ─────────────────────────── */}
+      {exportModalAbierto && (
+        <div
+          style={S.modalOverlay}
+          onClick={() => !exportLoading && setExportModalAbierto(false)}
+        >
+          <div style={S.modalBox} onClick={e => e.stopPropagation()}>
+            <div style={S.modalTitulo}>📥 Exportar a Excel</div>
+
+            <div style={S.modalLabel}>¿Qué querés exportar?</div>
+            <ToggleGroup
+              opciones={[
+                { val: "mes",   label: "Por mes" },
+                { val: "dia",   label: "Un día" },
+                { val: "rango", label: "Rango" },
+              ]}
+              valor={exportModo}
+              onChange={setExportModo}
+            />
+
+            {exportModo === "mes" && (
+              <div style={{ marginTop: "14px" }}>
+                <div style={S.modalLabel}>Período</div>
+                <select
+                  value={exportPeriodo}
+                  onChange={e => setExportPeriodo(e.target.value)}
+                  style={S.modalSelect}
+                  disabled={exportLoading}
+                >
+                  {periodos.map(p => <option key={p} value={p}>{periodoLabel(p)}</option>)}
+                </select>
+              </div>
+            )}
+
+            {exportModo === "dia" && (
+              <div style={{ marginTop: "14px" }}>
+                <div style={S.modalLabel}>Fecha</div>
+                <input
+                  type="date"
+                  value={exportFechaDia}
+                  onChange={e => setExportFechaDia(e.target.value)}
+                  max={new Date().toISOString().slice(0, 10)}
+                  style={S.modalDateInput}
+                  disabled={exportLoading}
+                />
+              </div>
+            )}
+
+            {exportModo === "rango" && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "14px" }}>
+                <div>
+                  <div style={S.modalLabel}>Desde</div>
+                  <input
+                    type="date"
+                    value={exportFechaDesde}
+                    onChange={e => setExportFechaDesde(e.target.value)}
+                    max={exportFechaHasta || new Date().toISOString().slice(0, 10)}
+                    style={S.modalDateInput}
+                    disabled={exportLoading}
+                  />
+                </div>
+                <div>
+                  <div style={S.modalLabel}>Hasta</div>
+                  <input
+                    type="date"
+                    value={exportFechaHasta}
+                    onChange={e => setExportFechaHasta(e.target.value)}
+                    min={exportFechaDesde || undefined}
+                    max={new Date().toISOString().slice(0, 10)}
+                    style={S.modalDateInput}
+                    disabled={exportLoading}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div style={S.modalSub}>
+              {exportModo === "mes"
+                ? "Se exporta con los mismos filtros de rubro, categoría y fuente que tenés aplicados ahora arriba."
+                : "Filtra por la fecha real en que se cargó o editó cada precio — a diferencia de \"Por mes\", puede cruzar dos meses distintos. Los filtros de rubro, categoría y fuente de arriba también se aplican."}
+            </div>
+
+            {exportError && <div style={S.modalError}>⚠ {exportError}</div>}
+
+            <div style={S.modalBotones}>
+              <button
+                type="button"
+                style={S.modalBtnCancelar}
+                disabled={exportLoading}
+                onClick={() => setExportModalAbierto(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                style={S.modalBtnConfirmar}
+                disabled={exportLoading}
+                onClick={handleConfirmarExport}
+              >
+                {exportLoading ? "Exportando…" : "↓ Exportar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
