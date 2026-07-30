@@ -53,6 +53,7 @@ class PanelRow(BaseModel):
     relevado_por:         str
     rubro:                str
     categoria:            str
+    producto_id:          str
     fuente:               str
     marca:                str
     codigo:               str | None

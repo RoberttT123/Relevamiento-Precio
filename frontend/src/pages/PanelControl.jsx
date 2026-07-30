@@ -287,11 +287,11 @@ const S = {
   },
 
   // ── Gráfico de indexación ─────────────────────────────────────────────────
-  indexChartWrap: { background: C.white, padding: "22px 20px", minWidth: "560px" },
+  indexChartWrap: { background: C.white, padding: "22px 20px", minWidth: "720px" },
   indexChartTitleBox: {
     display: "inline-block", border: `2px dashed ${C.green}`, borderRadius: "6px",
     padding: "9px 22px", color: C.green, fontWeight: 800, fontSize: "15px",
-    letterSpacing: "0.4px", marginBottom: "22px", marginLeft: "58px",
+    letterSpacing: "0.4px", marginBottom: "22px",
     whiteSpace: "nowrap",
   },
   indexChartBody: { display: "flex", flexDirection: "column" },
@@ -310,9 +310,18 @@ const S = {
     width: "48px", display: "flex", alignItems: "center",
     fontWeight: 800, fontSize: "13.5px", color: C.navy, flexShrink: 0,
   },
+  // Derecha: Competencia / Seguidor. Izquierda: PROESA. Ambas comparten el
+  // espacio por igual (flex: 1) para que el eje quede centrado sea cual
+  // sea la cantidad de productos de cada lado.
   indexProductosFila: {
     display: "flex", flexWrap: "nowrap", gap: "16px",
     alignItems: "center", padding: "8px 0",
+    flex: 1, justifyContent: "flex-start",
+  },
+  indexProductosFilaIzq: {
+    display: "flex", flexWrap: "nowrap", gap: "16px",
+    alignItems: "center", padding: "8px 0",
+    flex: 1, justifyContent: "flex-end",
   },
   indexTarjeta: {
     display: "flex", gap: "9px", alignItems: "center",
@@ -433,17 +442,52 @@ function ProductoCard({ row }) {
 // ─── Gráfico de indexación ─────────────────────────────────────────────────
 // Eje vertical verde: el líder queda en 100% arriba, y desciende un nodo
 // por cada nivel distinto de Index Real presente en la categoría. De cada
-// nodo se despliegan hacia la derecha los productos con ese % exacto,
-// uno al lado del otro si hay más de uno en el mismo nivel. La altura de
-// la línea es puramente CSS (cada fila aporta su propio segmento arriba/
-// abajo del punto), no hace falta medir nada con JS.
+// nodo se despliegan los productos con ese % exacto — los de fuente
+// PROESA a la izquierda del eje, el resto (Competencia, Seguidor) a la
+// derecha — uno al lado del otro si hay más de uno del mismo lado. La
+// altura de la línea es puramente CSS (cada fila aporta su propio
+// segmento arriba/abajo del punto), no hace falta medir nada con JS.
+function TarjetaIndex({ producto, esLiderNodo }) {
+  return (
+    <div style={S.indexTarjeta}>
+      <div style={S.indexTarjetaImg}>
+        {producto.imagen_url
+          ? <img src={producto.imagen_url} alt="" crossOrigin="anonymous"
+              style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          : <span style={{ fontSize: "18px" }}>🖼️</span>}
+      </div>
+      <div style={S.indexTarjetaInfo}>
+        {esLiderNodo && <span style={S.indexBadgeLider}>⭐ Líder</span>}
+        <div style={S.indexTarjetaNombre}>{producto.descripcion}</div>
+        <div style={S.indexTarjetaPrecio}>
+          PVP&nbsp;<b>Bs {producto.precio_compra_unidad != null ? producto.precio_compra_unidad.toFixed(2) : "—"}</b>
+        </div>
+        <div style={S.indexTarjetaPrecio}>
+          x Und.&nbsp;<b>Bs {producto.margen_unidad_bs != null ? producto.margen_unidad_bs.toFixed(2) : "—"}</b>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GraficoIndexacion({ categoria, nodos }) {
   return (
     <div style={S.indexChartWrap}>
-      <div style={S.indexChartTitleBox}>INDEX {categoria.toUpperCase()}</div>
+      <div style={{ textAlign: "center" }}>
+        <div style={S.indexChartTitleBox}>INDEX {categoria.toUpperCase()}</div>
+      </div>
       <div style={S.indexChartBody}>
         {nodos.map((nodo, i) => (
           <div key={nodo.pct} style={S.indexFila}>
+            <div style={S.indexProductosFilaIzq}>
+              {nodo.izquierda.map(p => (
+                <TarjetaIndex
+                  key={p.producto_id ?? `${p.descripcion}|${p.marca}`}
+                  producto={p}
+                  esLiderNodo={nodo.pct === 100}
+                />
+              ))}
+            </div>
             <div style={S.indexEjeCol}>
               {i > 0 && <div style={S.indexLineaSeg} />}
               <div style={S.indexNodoPunto} />
@@ -451,25 +495,12 @@ function GraficoIndexacion({ categoria, nodos }) {
             </div>
             <div style={S.indexPct}>{nodo.pct}%</div>
             <div style={S.indexProductosFila}>
-              {nodo.productos.map(p => (
-                <div key={`${p.descripcion}|${p.marca}`} style={S.indexTarjeta}>
-                  <div style={S.indexTarjetaImg}>
-                    {p.imagen_url
-                      ? <img src={p.imagen_url} alt="" crossOrigin="anonymous"
-                          style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-                      : <span style={{ fontSize: "18px" }}>🖼️</span>}
-                  </div>
-                  <div style={S.indexTarjetaInfo}>
-                    {nodo.pct === 100 && <span style={S.indexBadgeLider}>⭐ Líder</span>}
-                    <div style={S.indexTarjetaNombre}>{p.descripcion}</div>
-                    <div style={S.indexTarjetaPrecio}>
-                      PVP&nbsp;<b>Bs {p.precio_compra_unidad != null ? p.precio_compra_unidad.toFixed(2) : "—"}</b>
-                    </div>
-                    <div style={S.indexTarjetaPrecio}>
-                      x Und.&nbsp;<b>Bs {p.margen_unidad_bs != null ? p.margen_unidad_bs.toFixed(2) : "—"}</b>
-                    </div>
-                  </div>
-                </div>
+              {nodo.derecha.map(p => (
+                <TarjetaIndex
+                  key={p.producto_id ?? `${p.descripcion}|${p.marca}`}
+                  producto={p}
+                  esLiderNodo={nodo.pct === 100}
+                />
               ))}
             </div>
           </div>
@@ -596,7 +627,22 @@ export default function PanelControl({ empleado }) {
       );
       if (!resp.ok) throw new Error("Error al cargar los datos de indexación.");
       const data = await resp.json();
-      const conIndex = data.filter(r => r.index_real != null);
+
+      // Un mismo producto puede tener más de un precio cargado en este
+      // período (ej. si se relevó en más de una ronda del mes). Nos
+      // quedamos con la edición más reciente de cada producto, para no
+      // graficarlo repetido.
+      const masRecientePorProducto = new Map();
+      data.forEach(r => {
+        if (r.index_real == null) return;
+        const clave = r.producto_id ?? `${r.descripcion}|${r.marca}`;
+        const actual = masRecientePorProducto.get(clave);
+        if (!actual || new Date(r.ultima_edicion) > new Date(actual.ultima_edicion)) {
+          masRecientePorProducto.set(clave, r);
+        }
+      });
+      const conIndex = Array.from(masRecientePorProducto.values());
+
       if (conIndex.length === 0) {
         setErrorIndex("Ningún producto de esta categoría tiene Index Real cargado en este período.");
         setIndexData([]);
@@ -650,7 +696,9 @@ export default function PanelControl({ empleado }) {
 
   // Agrupa por nivel de Index Real (redondeado al entero más cercano, para
   // que 57.6% y 58.4% se traten como "el mismo nodo" de 58%), ordenado
-  // descendente — el líder (100%) siempre queda arriba de todo.
+  // descendente — el líder (100%) siempre queda arriba de todo. Dentro de
+  // cada nodo, los PROESA van a la izquierda del eje y el resto (Competencia,
+  // Seguidor) a la derecha.
   const nodosIndex = useMemo(() => {
     const grupos = {};
     indexData.forEach(r => {
@@ -661,7 +709,14 @@ export default function PanelControl({ empleado }) {
     return Object.keys(grupos)
       .map(Number)
       .sort((a, b) => b - a)
-      .map(pct => ({ pct, productos: grupos[pct] }));
+      .map(pct => {
+        const productos = grupos[pct];
+        return {
+          pct,
+          izquierda: productos.filter(p => p.fuente === "PROESA"),
+          derecha:   productos.filter(p => p.fuente !== "PROESA"),
+        };
+      });
   }, [indexData]);
 
   const panelDataFiltrado = useMemo(() => {
