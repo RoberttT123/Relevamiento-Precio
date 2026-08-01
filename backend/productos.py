@@ -167,6 +167,12 @@ def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
     _calcular_index_real() sin nada de qué partir aunque el resto de la
     lógica ya estuviera bien.
 
+    Importante: procesa PRIMERO los precios del líder. _calcular_index_real()
+    busca el precio_por_gr_ml del líder con una consulta fresca a la base,
+    no con lo que estemos por escribir más abajo en esta misma pasada — si
+    un competidor se procesara antes que el líder, todavía lo encontraría
+    en null aunque unas líneas después lo estemos por corregir.
+
     A diferencia de _recalcular_grupo() en relevamientos.py (que solo
     toca UN período puntual, disparado al guardar un precio del líder),
     esta recorre el historial completo del grupo.
@@ -176,7 +182,7 @@ def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
 
     productos_grupo = (
         supabase.table("productos")
-        .select("id, grameaje_ml")
+        .select("id, grameaje_ml, es_lider")
         .eq("grupo", grupo)
         .eq("activo", True)
         .execute()
@@ -186,6 +192,7 @@ def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
 
     grameaje_por_producto = {p["id"]: p.get("grameaje_ml") for p in productos_grupo}
     producto_ids = list(grameaje_por_producto.keys())
+    lider_ids = {p["id"] for p in productos_grupo if p.get("es_lider")}
 
     precios = (
         supabase.table("precios_relevamiento")
@@ -193,6 +200,10 @@ def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
         .in_("producto_id", producto_ids)
         .execute()
     ).data or []
+
+    # Líder primero (ver docstring) — sort estable, no altera el orden
+    # relativo dentro de cada grupo (líder / no líder).
+    precios.sort(key=lambda pr: 0 if pr["producto_id"] in lider_ids else 1)
 
     for pr in precios:
         rel = pr.get("relevamientos") or {}
