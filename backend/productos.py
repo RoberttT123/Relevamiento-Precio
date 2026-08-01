@@ -36,7 +36,7 @@ from pydantic import BaseModel
 from supabase import Client, create_client
 
 from auth import EmpleadoOut, get_empleado_actual
-from relevamientos import _calcular_index_real
+from relevamientos import _calcular_index_real, _calcular_precio_por_gr_ml
 
 # ─── Variables de entorno ────────────────────────────────────────────────────
 load_dotenv()
@@ -147,8 +147,9 @@ def _categorias_asignadas(empleado_id: str) -> set[int]:
 # ─── Helper: recalcular index_real de TODO el historial de un grupo ──────────
 def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
     """
-    Recalcula index_real de TODOS los precios (en TODOS los períodos, no
-    solo el actual) de los productos que pertenecen a este grupo.
+    Recalcula precio_por_gr_ml e index_real de TODOS los precios (en TODOS
+    los períodos, no solo el actual) de los productos que pertenecen a
+    este grupo.
 
     Se llama cada vez que cambia quién es el líder del grupo (marcar o
     desmarcar), porque eso vuelve obsoleto cualquier index_real que ya
@@ -160,6 +161,12 @@ def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
       - Si un producto deja de ser líder, los index_real que dependían de
         él quedan apuntando a una referencia que ya no es válida.
 
+    También recalcula precio_por_gr_ml en vez de confiar en el valor ya
+    guardado — precios cargados antes de que ese cálculo automático
+    existiera se quedaron con esa columna en null, lo que dejaba a
+    _calcular_index_real() sin nada de qué partir aunque el resto de la
+    lógica ya estuviera bien.
+
     A diferencia de _recalcular_grupo() en relevamientos.py (que solo
     toca UN período puntual, disparado al guardar un precio del líder),
     esta recorre el historial completo del grupo.
@@ -169,7 +176,7 @@ def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
 
     productos_grupo = (
         supabase.table("productos")
-        .select("id")
+        .select("id, grameaje_ml")
         .eq("grupo", grupo)
         .eq("activo", True)
         .execute()
@@ -177,11 +184,12 @@ def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
     if not productos_grupo:
         return
 
-    producto_ids = [p["id"] for p in productos_grupo]
+    grameaje_por_producto = {p["id"]: p.get("grameaje_ml") for p in productos_grupo}
+    producto_ids = list(grameaje_por_producto.keys())
 
     precios = (
         supabase.table("precios_relevamiento")
-        .select("id, producto_id, precio_por_gr_ml, relevamientos(periodo)")
+        .select("id, producto_id, precio_venta_unidad, precio_por_gr_ml, relevamientos(periodo)")
         .in_("producto_id", producto_ids)
         .execute()
     ).data or []
@@ -191,14 +199,28 @@ def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
         periodo = rel.get("periodo")
         if not periodo:
             continue
-        nuevo_index = _calcular_index_real(pr["producto_id"], pr.get("precio_por_gr_ml"), periodo)
-        # A diferencia de otros call-sites, acá SÍ actualizamos aunque el
-        # resultado sea None (ej. el grupo se quedó sin líder) — si no,
-        # un index_real viejo quedaría dando vueltas como si siguiera
-        # siendo válido.
-        supabase.table("precios_relevamiento").update(
-            {"index_real": nuevo_index}
-        ).eq("id", pr["id"]).execute()
+
+        precio_por_gr_ml = _calcular_precio_por_gr_ml(
+            pr.get("precio_venta_unidad"),
+            grameaje_por_producto.get(pr["producto_id"]),
+        )
+        # Si no se pudo recalcular (ej. falta grameaje), al menos usamos
+        # lo que ya hubiera guardado, en vez de perderlo.
+        precio_por_gr_ml_efectivo = (
+            precio_por_gr_ml if precio_por_gr_ml is not None else pr.get("precio_por_gr_ml")
+        )
+
+        nuevo_index = _calcular_index_real(pr["producto_id"], precio_por_gr_ml_efectivo, periodo)
+
+        cambios = {"index_real": nuevo_index}
+        if precio_por_gr_ml is not None:
+            cambios["precio_por_gr_ml"] = precio_por_gr_ml
+        # A diferencia de otros call-sites, acá SÍ actualizamos index_real
+        # aunque el resultado sea None (ej. el grupo se quedó sin líder)
+        # — si no, un index_real viejo quedaría dando vueltas como si
+        # siguiera siendo válido.
+        supabase.table("precios_relevamiento").update(cambios) \
+            .eq("id", pr["id"]).execute()
 
 
 # ─── GET /api/productos ───────────────────────────────────────────────────────
