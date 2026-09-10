@@ -5,8 +5,13 @@
  * Gráfico de líneas o barras SVG puro.
  * - Recorta el eje X a los meses que tienen datos reales
  * - Eje Y con rango inteligente (no desde 0)
- * - Labels de producto al final de cada línea
+ * - Los nombres de producto viven solo en la leyenda (no se repiten al
+ *   final de cada línea, para no saturar el gráfico)
  * - Línea horizontal cuando hay un solo punto (tendencia plana)
+ * - Etiquetas de valor con separación anti-colisión: si dos series tienen
+ *   un valor muy cercano en el mismo mes, sus etiquetas se apilan en vez
+ *   de superponerse (ver resolverColisionesLabels)
+ * - Botón "Descargar" que exporta gráfico + leyenda como PNG (via html2canvas)
  *
  * Props:
  *   data        [ { descripcion, marca, fuente,
@@ -15,7 +20,8 @@
  *   tipoGrafico "lineas" | "barras"
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
+import html2canvas from "html2canvas";
 
 const C = {
   navy:    "#1A1A2E",
@@ -93,6 +99,37 @@ function calcYAxis(values) {
   return { yMin, yMax, tickSpacing };
 }
 
+// Separación mínima (en unidades del viewBox) entre dos etiquetas de valor
+// apiladas verticalmente antes de considerarlas "pisadas".
+const LABEL_MIN_GAP = 12;
+
+// Para cada mes (columna del eje X), junta los puntos de todas las series que
+// tengan dato ahí, los ordena de arriba hacia abajo y empuja hacia abajo
+// cualquier etiqueta que quede a menos de LABEL_MIN_GAP de la anterior. Así,
+// si dos productos tienen un valor casi idéntico el mismo mes, sus números
+// se apilan en vez de quedar uno encima del otro (ilegibles).
+// Devuelve un Map con clave `${indiceSerie}_${indicePeriodo}` -> y de la etiqueta.
+function resolverColisionesLabels(series, periodos, yPos) {
+  const resultado = new Map();
+  periodos.forEach((_, i) => {
+    const candidatos = [];
+    series.forEach((s, si) => {
+      const v = s.valores[i];
+      if (v != null) candidatos.push({ si, y: yPos(v) - 10, v });
+    });
+    candidatos.sort((a, b) => a.y - b.y);
+    for (let k = 1; k < candidatos.length; k++) {
+      const prev = candidatos[k - 1];
+      const cur  = candidatos[k];
+      if (cur.y - prev.y < LABEL_MIN_GAP) {
+        cur.y = prev.y + LABEL_MIN_GAP;
+      }
+    }
+    candidatos.forEach(({ si, y }) => resultado.set(`${si}_${i}`, y));
+  });
+  return resultado;
+}
+
 // ─── SVG principal ────────────────────────────────────────────────────────────
 function GraficoSVG({ series, periodos, tipo }) {
   const [tooltip, setTooltip] = useState(null);
@@ -102,7 +139,7 @@ function GraficoSVG({ series, periodos, tipo }) {
   const W      = 700;
   const H      = 300;
   const PAD_L  = 52;
-  const PAD_R  = 110; // espacio para labels al final de la línea
+  const PAD_R  = 28; // margen derecho (los nombres de producto ya estan en la leyenda)
   const PAD_T  = 20;
   const PAD_B  = 48;
   const PLOT_W = W - PAD_L - PAD_R;
@@ -135,6 +172,9 @@ function GraficoSVG({ series, periodos, tipo }) {
   const N = Math.max(periodos.length - 1, 1);
   const xPos = (i) => PAD_L + (i / N) * PLOT_W;
   const yPos = (v) => PAD_T + PLOT_H - ((v - yMin) / yRango) * PLOT_H;
+
+  // Posición anti-colisión de cada etiqueta de valor (solo aplica en modo líneas)
+  const labelYAjustado = tipo === "lineas" ? resolverColisionesLabels(series, periodos, yPos) : null;
 
   // Ancho de barra por producto
   const barW = tipo === "barras"
@@ -224,9 +264,6 @@ function GraficoSVG({ series, periodos, tipo }) {
           const soloUnPunto = puntosConValor.length === 1;
           const refY = soloUnPunto ? puntosConValor[0].y : null;
 
-          // Label al final de la línea (último punto con valor)
-          const ultimoPunto = puntosConValor[puntosConValor.length - 1];
-
           return (
             <g key={si} style={{ opacity }}>
               {/* Línea horizontal de referencia si hay un solo punto */}
@@ -254,48 +291,38 @@ function GraficoSVG({ series, periodos, tipo }) {
               )}
 
               {/* Puntos */}
-              {puntosConValor.map(({ x, y: py, v, i }) => (
-                <g key={i}>
-                  {/* Halo hover */}
-                  <circle cx={x} cy={py} r="9"
-                    fill={serie.color} opacity="0"
-                    style={{ cursor: "pointer" }}
-                    onMouseEnter={() => { setTooltip({ x, y: py, v, serie, periodo: periodos[i] }); setHoverSerie(si); }}
-                    onMouseLeave={() => { setTooltip(null); setHoverSerie(null); }}
-                  />
-                  <circle cx={x} cy={py} r="4.5"
-                    fill={C.white}
-                    stroke={serie.color}
-                    strokeWidth="2.2"
-                    style={{ cursor: "pointer" }}
-                    onMouseEnter={() => { setTooltip({ x, y: py, v, serie, periodo: periodos[i] }); setHoverSerie(si); }}
-                    onMouseLeave={() => { setTooltip(null); setHoverSerie(null); }}
-                  />
-                  {/* Label de valor encima del punto */}
-                  <text
-                    x={x} y={py - 10}
-                    fontSize="9.5" fontWeight="700"
-                    fill={serie.color}
-                    textAnchor="middle"
-                    fontFamily="Inter, sans-serif"
-                  >
-                    {v % 1 === 0 ? v : v.toFixed(2)}
-                  </text>
-                </g>
-              ))}
-
-              {/* Label del producto al final de la línea */}
-              <text
-                x={PAD_L + PLOT_W + 8}
-                y={ultimoPunto.y + 4}
-                fontSize="10.5"
-                fontWeight="600"
-                fill={serie.color}
-                textAnchor="start"
-                fontFamily="Inter, sans-serif"
-              >
-                {serie.label.length > 10 ? serie.label.slice(0, 9) + "…" : serie.label}
-              </text>
+              {puntosConValor.map(({ x, y: py, v, i }) => {
+                const yLabel = labelYAjustado.get(`${si}_${i}`) ?? (py - 10);
+                return (
+                  <g key={i}>
+                    {/* Halo hover */}
+                    <circle cx={x} cy={py} r="9"
+                      fill={serie.color} opacity="0"
+                      style={{ cursor: "pointer" }}
+                      onMouseEnter={() => { setTooltip({ x, y: py, v, serie, periodo: periodos[i] }); setHoverSerie(si); }}
+                      onMouseLeave={() => { setTooltip(null); setHoverSerie(null); }}
+                    />
+                    <circle cx={x} cy={py} r="4.5"
+                      fill={C.white}
+                      stroke={serie.color}
+                      strokeWidth="2.2"
+                      style={{ cursor: "pointer" }}
+                      onMouseEnter={() => { setTooltip({ x, y: py, v, serie, periodo: periodos[i] }); setHoverSerie(si); }}
+                      onMouseLeave={() => { setTooltip(null); setHoverSerie(null); }}
+                    />
+                    {/* Label de valor, desplazado si colisiona con otra serie en el mismo mes */}
+                    <text
+                      x={x} y={yLabel}
+                      fontSize="9.5" fontWeight="700"
+                      fill={serie.color}
+                      textAnchor="middle"
+                      fontFamily="Inter, sans-serif"
+                    >
+                      {v % 1 === 0 ? v : v.toFixed(2)}
+                    </text>
+                  </g>
+                );
+              })}
             </g>
           );
         })}
@@ -422,8 +449,65 @@ function Leyenda({ series, visibles, onToggle }) {
   );
 }
 
+// Boton para descargar el grafico (SVG + leyenda) como imagen PNG
+function BotonDescargar({ targetRef, nombreArchivo }) {
+  const [descargando, setDescargando] = useState(false);
+
+  async function descargar() {
+    if (!targetRef.current || descargando) return;
+    setDescargando(true);
+    try {
+      const canvas = await html2canvas(targetRef.current, {
+        backgroundColor: "#ffffff",
+        scale: 2, // mayor resolucion para que se vea nitido al compartir/imprimir
+      });
+      const url = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${nombreArchivo || "evolucion-precios"}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error("No se pudo generar la imagen del grafico:", err);
+    } finally {
+      setDescargando(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={descargar}
+      disabled={descargando}
+      title="Descargar gráfico como imagen"
+      style={{
+        display: "flex", alignItems: "center", gap: "5px",
+        background: C.white,
+        border: `1.5px solid ${C.gray300}`,
+        borderRadius: "8px",
+        padding: "5px 10px",
+        cursor: descargando ? "default" : "pointer",
+        fontSize: "11.5px",
+        fontWeight: 600,
+        color: C.gray600,
+        fontFamily: "Inter, sans-serif",
+        opacity: descargando ? 0.6 : 1,
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3v13" />
+        <path d="M7 11l5 5 5-5" />
+        <path d="M4 20h16" />
+      </svg>
+      {descargando ? "Generando…" : "Descargar"}
+    </button>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function GraficoEvolucion({ data, tipoPrecio, tipoGrafico }) {
+  const contenedorRef = useRef(null);
   const [visibles, setVisibles] = useState(() => new Set(data.map((_, i) => i)));
 
   function toggleVisible(i) {
@@ -486,16 +570,21 @@ export default function GraficoEvolucion({ data, tipoPrecio, tipoGrafico }) {
 
   return (
     <div>
-      <GraficoSVG
-        series={seriesVisibles}
-        periodos={periodos}
-        tipo={tipoGrafico}
-      />
-      <Leyenda
-        series={todasLasSeries}
-        visibles={visibles}
-        onToggle={toggleVisible}
-      />
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 16px 0" }}>
+        <BotonDescargar targetRef={contenedorRef} nombreArchivo="evolucion-precios" />
+      </div>
+      <div ref={contenedorRef} style={{ background: C.white }}>
+        <GraficoSVG
+          series={seriesVisibles}
+          periodos={periodos}
+          tipo={tipoGrafico}
+        />
+        <Leyenda
+          series={todasLasSeries}
+          visibles={visibles}
+          onToggle={toggleVisible}
+        />
+      </div>
     </div>
   );
 }
