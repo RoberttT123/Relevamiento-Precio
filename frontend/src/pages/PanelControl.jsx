@@ -460,10 +460,10 @@ function TarjetaIndex({ producto, esLiderNodo }) {
         {esLiderNodo && <span style={S.indexBadgeLider}>⭐ Líder</span>}
         <div style={S.indexTarjetaNombre}>{producto.descripcion}</div>
         <div style={S.indexTarjetaPrecio}>
-          PVP&nbsp;<b>Bs {producto.precio_compra_unidad != null ? producto.precio_compra_unidad.toFixed(2) : "—"}</b>
+          PVP&nbsp;<b>Bs {producto.precio_venta_caja != null ? producto.precio_venta_caja.toFixed(2) : "—"}</b>
         </div>
         <div style={S.indexTarjetaPrecio}>
-          x Und.&nbsp;<b>Bs {producto.margen_unidad_bs != null ? producto.margen_unidad_bs.toFixed(2) : "—"}</b>
+          x Und.&nbsp;<b>Bs {producto.precio_venta_unidad != null ? producto.precio_venta_unidad.toFixed(2) : "—"}</b>
         </div>
       </div>
     </div>
