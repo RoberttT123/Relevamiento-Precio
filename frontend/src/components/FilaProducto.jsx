@@ -367,7 +367,12 @@ export default function FilaProducto({
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
-          throw new Error(err.detail ?? "Error al guardar.");
+          // FastAPI devuelve los errores de validación (422) como una lista
+          // de objetos; sin esto el usuario veía "[object Object]".
+          const detalle = Array.isArray(err.detail)
+            ? err.detail.map(d => (d.msg ?? "").replace(/^Value error, /, "")).join(" ")
+            : err.detail;
+          throw new Error(detalle || "Error al guardar.");
         }
         const data = await resp.json();
         if (onGuardado) onGuardado(data);
