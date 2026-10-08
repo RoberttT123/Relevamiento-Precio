@@ -196,7 +196,7 @@ def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
 
     precios = (
         supabase.table("precios_relevamiento")
-        .select("id, producto_id, precio_venta_unidad, precio_por_gr_ml, relevamientos(periodo)")
+        .select("id, producto_id, precio_venta_unidad, precio_venta_caja, precio_por_gr_ml, relevamientos(periodo)")
         .in_("producto_id", producto_ids)
         .execute()
     ).data or []
@@ -221,7 +221,9 @@ def _recalcular_indice_grupo_todos_periodos(grupo: str) -> None:
             precio_por_gr_ml if precio_por_gr_ml is not None else pr.get("precio_por_gr_ml")
         )
 
-        nuevo_index = _calcular_index_real(pr["producto_id"], precio_por_gr_ml_efectivo, periodo)
+        nuevo_index = _calcular_index_real(
+            pr["producto_id"], precio_por_gr_ml_efectivo, periodo, pr.get("precio_venta_caja")
+        )
 
         cambios = {"index_real": nuevo_index}
         if precio_por_gr_ml is not None:
